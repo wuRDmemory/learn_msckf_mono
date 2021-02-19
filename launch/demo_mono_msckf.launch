@@ -1,0 +1,13 @@
+<launch>
+  <arg name="config_path" default="$(find learn_msckf)/config/config.yaml"/>
+
+  <node name="mono_msckf" pkg="learn_msckf" type="msckf_node" 
+      args="-config_file $(arg config_path)" required="true">
+    <remap from="imu" to="imu0"/>
+    <remap from="image" to="cam0/image_raw"/>
+  </node>
+
+  <node name="rvizvisualisation" pkg="rviz" type="rviz" output="log" 
+      args="-d $(find learn_msckf)/config/msckf_config.rviz"/>
+
+</launch>

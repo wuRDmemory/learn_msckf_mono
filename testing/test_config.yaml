@@ -1,0 +1,64 @@
+%YAML:1.0
+
+camera:
+  type: "PINHOLE"
+
+  width: 752
+  height: 480
+
+  fx: 458.654
+  fy: 457.296
+  cx: 367.215
+  cy: 248.375
+
+  k1: -0.28340811
+  k2: 0.07395907
+  d1: 0.00019359
+  d2: 1.76187114e-05
+
+Tbc:
+  Rbc: !!opencv-matrix
+    rows: 3
+    cols: 3
+    dt: d
+    data: [ 0.0,  0.0, 1.0,
+           -1.0,  0.0, 0.0, 
+            0.0, -1.0, 0.0]
+  
+  tbc: !!opencv-matrix
+    rows: 3
+    cols: 1
+    dt: d
+    data: [0, 0, 0]
+
+# track parameters
+fm_threshold: 1.0
+max_cornor_num: 150
+min_cornor_gap: 30
+track_frequency: 10 
+track_verbose: 0
+
+# inertial parameters
+inertial_init_cnt: 100
+inertial_init_accl_cov: 1.0
+inertial_init_gyro_cov: 0.1
+
+# noise parameters
+noise_accl: 0.05
+noise_gyro: 0.005
+noise_accl_bias: 0.01
+noise_gyro_bias: 0.001
+noise_observation: 0.01
+
+# feature optimization
+feature:
+  max_iter_cnt: 10
+  max_try_cnt: 5
+  converge_threshold: 1.e-5
+  min_disparity_angle: 10 # in deg
+  min_disparity_distance: 0.2
+
+# image noise
+sliding_window_lens: 20
+distance_threshold: 0.5
+angle_threshold: 15 # in deg
