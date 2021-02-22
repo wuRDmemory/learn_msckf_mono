@@ -194,10 +194,10 @@ bool checkMotion(Feature& ftr, CameraWindow& cams) {
   const Eigen::Vector3d c0_f_c1 = (R_c0_c1*f_c1).normalized();
 
   // 1. check direction's angle
-  // double cos_angle = abs(c0_f_c1.dot(f_c0));
-  // if (cos_angle > Config::feature_config.min_disparity_angle) {
-  //   return false;
-  // }
+  double cos_angle = abs(c0_f_c1.dot(f_c0));
+  if (cos_angle > Config::feature_config.min_disparity_angle) {
+    return false;
+  }
 
   // 2. check distance
   Eigen::Vector3d t_c0_c1 = R_w_c0.inverse()*(t_w_c1 - t_w_c0); // project V_c0_c1 in world cooridation to c0's cooridation.

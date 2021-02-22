@@ -84,8 +84,8 @@ Visualization Manager:
     - Alpha: 1
       Buffer Length: 1
       Class: rviz/Path
-      Color: 25; 255; 0
-      Enabled: false
+      Color: 255; 255; 0
+      Enabled: true
       Head Diameter: 0.30000001192092896
       Head Length: 0.20000000298023224
       Length: 0.30000001192092896
@@ -104,7 +104,7 @@ Visualization Manager:
       Shaft Length: 0.10000000149011612
       Topic: /cam_path
       Unreliable: false
-      Value: false
+      Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz/Path
@@ -134,7 +134,7 @@ Visualization Manager:
       Marker Topic: /robot_pose
       Name: Marker
       Namespaces:
-        {}
+        robot_pose_vis: true
       Queue Size: 100
       Value: true
     - Class: rviz/Image
@@ -166,7 +166,7 @@ Visualization Manager:
           Scale: 1
           Value: true
         Value: true
-      Enabled: true
+      Enabled: false
       Keep: 100
       Name: Odometry
       Position Tolerance: 0.10000000149011612
@@ -183,7 +183,7 @@ Visualization Manager:
         Value: Arrow
       Topic: /imu_odom
       Unreliable: false
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -212,7 +212,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 3.692185878753662
+      Distance: 17.48078155517578
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -228,9 +228,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5803982019424438
+      Pitch: 0.5953981876373291
       Target Frame: <Fixed Frame>
-      Yaw: 0.5153952240943909
+      Yaw: 5.498579978942871
     Saved: ~
 Window Geometry:
   Displays:

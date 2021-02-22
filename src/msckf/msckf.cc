@@ -214,6 +214,13 @@ bool Msckf::initialization() {
     
     data_.gravity        = Eigen::Vector3d(0, 0, accl_mean.norm());
     data_.imu_status.Rwb = Eigen::Quaterniond::FromTwoVectors(accl_mean.cast<double>(), data_.gravity);
+    data_.imu_status.pwb.setZero();
+    data_.imu_status.vwb.setZero();
+
+    data_.imu_status.Rwb_nullspace = data_.imu_status.Rwb;
+    data_.imu_status.pwb_nullspace = data_.imu_status.pwb;
+    data_.imu_status.vwb_nullspace = data_.imu_status.vwb;
+
     data_.imu_status.ts  = timestamp;
 
     Eigen::Vector3d angles = data_.imu_status.Rwb.toRotationMatrix().eulerAngles(2, 1, 0);
@@ -267,11 +274,28 @@ bool Msckf::feedTrackResult(TrackResult& track_result) {
   data_.imu_status.observes.swap(obs_set);
   
   // TODO: test time eclipse
+  COMMON::Tick tick("timer");
   predictCamStatus(track_result);
 
   featureUpdateStatus();
   
   pruneCameraStatus();
+
+  if (Config::save_trajectory) {
+    static bool first = true;
+    if (first) {
+      first = false;
+      ofstream out(Config::save_path);
+      out.close();
+    }
+
+    ofstream out(Config::save_path, std::ios_base::app);
+    const ImuStatus& imu_status = data_.imu_status;
+    out << setprecision(15) << imu_status.ts << " "
+        << imu_status.pwb.x() << " " << imu_status.pwb.y() << " " << imu_status.pwb.z() << " "
+        << imu_status.Rwb.x() << " " << imu_status.Rwb.y() << " " << imu_status.Rwb.z() << " " << imu_status.Rwb.w() << endl;
+    out.close();
+  }
 
   data_.imu_status.id++;
   return true;
@@ -313,20 +337,6 @@ bool Msckf::predictImuStatus(const Eigen::Vector3d& accl_m, const Eigen::Vector3
   IMU_Matrix Phi = IMU_Matrix::Identity() + Fdtime + 0.5*Fdtime2 + (1./6)*Fdtime3;
   IMU_Matrix V   = Phi*G*data_.Q_imu*G.transpose()*Phi.transpose()*dt;
 
-  if (dt > 0.01) {
-    cout << dt << endl;
-  }
-
-  Eigen::MatrixXd P = data_.P_dx.block<IMU_STATUS_DIM, IMU_STATUS_DIM>(0, 0);
-  data_.P_dx.block<IMU_STATUS_DIM, IMU_STATUS_DIM>(0, 0) = Phi*P*Phi.transpose() + V;
-  
-  if (data_.P_dx.size() > IMU_STATUS_DIM) {
-    const int N = data_.P_dx.rows();
-    Eigen::MatrixXd tmp = data_.P_dx.block(0, IMU_STATUS_DIM, IMU_STATUS_DIM, N-IMU_STATUS_DIM);
-    data_.P_dx.block(0, IMU_STATUS_DIM, IMU_STATUS_DIM, N-IMU_STATUS_DIM) = Phi*tmp;
-    data_.P_dx.block(IMU_STATUS_DIM, 0, N-IMU_STATUS_DIM, IMU_STATUS_DIM) = data_.P_dx.block(0, IMU_STATUS_DIM, IMU_STATUS_DIM, N-IMU_STATUS_DIM).transpose();
-  }
-
   // update status of IMU
   Eigen::Quaterniond q_dt  = imu_status.Rwb*MATH_UTILS::rotateVecToQuaternion<double>(gyro*dt); q_dt.normalize();
   Eigen::Quaterniond q_2dt = imu_status.Rwb*MATH_UTILS::rotateVecToQuaternion<double>(gyro*dt/2); q_2dt.normalize();
@@ -352,6 +362,38 @@ bool Msckf::predictImuStatus(const Eigen::Vector3d& accl_m, const Eigen::Vector3
   // imu_status.pwb = imu_status.pwb + (imu_status.vwb + 0.5*(imu_status.Rwb*accl - data_.gravity)*dt)*dt;
   // imu_status.vwb = imu_status.vwb + (imu_status.Rwb*accl - data_.gravity)*dt;
   imu_status.Rwb = q_dt;
+
+  if (dt > 0.01) {
+    cout << dt << endl;
+  }
+
+  { // OC-KF 
+    // A. change delta_theta
+    Phi.block<3, 3>(J_R, J_R) = imu_status.Rwb.toRotationMatrix().transpose()*imu_status.Rwb_nullspace.toRotationMatrix();
+    // B. change delta_v
+    Eigen::Vector3d w = MATH_UTILS::skewMatrix<double>(imu_status.vwb_nullspace - imu_status.vwb)*data_.gravity;
+    Eigen::Vector3d u = imu_status.Rwb_nullspace.toRotationMatrix().transpose()*data_.gravity;
+    Eigen::Matrix3d Phi_v = Phi.block<3, 3>(J_V, J_R);
+    Phi.block<3, 3>(J_V, J_R) = Phi_v - (Phi_v*u - w)*(u.transpose()*u).inverse()*u.transpose();
+
+    Eigen::Matrix3d Phi_p = Phi.block<3, 3>(J_P, J_R);
+    w = MATH_UTILS::skewMatrix<double>(imu_status.pwb_nullspace + imu_status.vwb_nullspace*dt - imu_status.pwb)*data_.gravity;
+    Phi.block<3, 3>(J_P, J_R) = Phi_p - (Phi_p*u - w)*(u.transpose()*u).inverse()*u.transpose();
+
+    data_.imu_status.Rwb_nullspace = data_.imu_status.Rwb;
+    data_.imu_status.pwb_nullspace = data_.imu_status.pwb;
+    data_.imu_status.vwb_nullspace = data_.imu_status.vwb;
+  }
+
+  Eigen::MatrixXd P = data_.P_dx.block<IMU_STATUS_DIM, IMU_STATUS_DIM>(0, 0);
+  data_.P_dx.block<IMU_STATUS_DIM, IMU_STATUS_DIM>(0, 0) = Phi*P*Phi.transpose() + V;
+  
+  if (data_.P_dx.size() > IMU_STATUS_DIM) {
+    const int N = data_.P_dx.rows();
+    Eigen::MatrixXd tmp = data_.P_dx.block(0, IMU_STATUS_DIM, IMU_STATUS_DIM, N-IMU_STATUS_DIM);
+    data_.P_dx.block(0, IMU_STATUS_DIM, IMU_STATUS_DIM, N-IMU_STATUS_DIM) = Phi*tmp;
+    data_.P_dx.block(IMU_STATUS_DIM, 0, N-IMU_STATUS_DIM, IMU_STATUS_DIM) = data_.P_dx.block(0, IMU_STATUS_DIM, IMU_STATUS_DIM, N-IMU_STATUS_DIM).transpose();
+  }
 
   return 1;
 }
@@ -393,6 +435,9 @@ bool Msckf::predictCamStatus(const TrackResult& track_result) {
   camera_status.ts  = track_result.ts;
   camera_status.Rwc = imu_status.Rwb*imu_status.Rbc; camera_status.Rwc.normalize();
   camera_status.pwc = imu_status.pwb + imu_status.Rwb*imu_status.pbc;
+
+  camera_status.Rwc_nullspace = camera_status.Rwc;
+  camera_status.pwc_nullspace = camera_status.pwc;
 
   // covariance expand.
   const int old_row = data_.P_dx.rows();
@@ -564,20 +609,19 @@ bool Msckf::pruneCameraStatus() {
         continue;       
       }
       valid_vis_cnt++;
-      jacobian_rows += (constraint_cam_id.size()*2 - 3);
+      // jacobian_rows += (constraint_cam_id.size()*2 - 3);
+      jacobian_rows += (observe.size()*2 - 3);
     }
     else {
       valid_vis_cnt++;
-      jacobian_rows += (constraint_cam_id.size()*2 - 3);
+      // jacobian_rows += (constraint_cam_id.size()*2 - 3);
+      jacobian_rows += (observe.size()*2 - 3);
     }
   }
 
   if (jacobian_rows == 0) {
-    LOG(INFO) << "[prune] No candidate cam status should be prune." << valid_vis_cnt <<"/"<< motion_invalid_cnt << "/" << init_invalid_cnt << "/" << valid_vis_cnt;
+    ; // LOG(INFO) << "[prune] No candidate cam status should be prune." << valid_vis_cnt <<"/"<< motion_invalid_cnt << "/" << init_invalid_cnt << "/" << valid_vis_cnt;
   }
-  // else {
-  //   LOG(INFO) << "[prune] cam " << remove_cam_id[0] << " and cam " << remove_cam_id[1] << " should be prune. info: " << valid_vis_cnt <<"/"<< motion_invalid_cnt << "/" << init_invalid_cnt << "/" << common_vis_cnt;
-  // }
 
   Eigen::MatrixXd H = Eigen::MatrixXd::Zero(jacobian_rows, cameras.size()*6 + 3*IMU_STATUS_NUM);
   Eigen::VectorXd e = Eigen::VectorXd::Zero(jacobian_rows);
@@ -597,6 +641,11 @@ bool Msckf::pruneCameraStatus() {
     if (constraint_cam_id.size() == 0)
       continue;
 
+    constraint_cam_id.clear();
+    for (auto& id_data : observe) {
+      constraint_cam_id.insert(id_data.first);
+    }
+
     Eigen::MatrixXd H_fj;
     Eigen::VectorXd e_fj;
     featureJacobian(ftr, cameras, constraint_cam_id, H_fj, e_fj);
@@ -605,7 +654,7 @@ bool Msckf::pruneCameraStatus() {
     if (gatingTest(H_fj, e_fj, constraint_cam_id.size())) {
       H.block(rows, 0, H_fj.rows(), H_fj.cols()) = H_fj;
       e.segment(rows,  e_fj.rows())              = e_fj;
-      rows += H_fj.rows();
+      rows                                      += H_fj.rows();
     }
 
     for (int cam_id : remove_cam_id) {
@@ -691,6 +740,14 @@ bool Msckf::featureJacobian(const Feature& ftr, const CameraWindow& cam_window, 
     Eigen::Matrix<double, 2, 3> J_Pfj;
     
     Eigen::Vector2d res = getJacobian(cam_ob, ftr.point_3d, cam_status, J_status, J_Pfj);
+
+    { // OC-KF
+      Eigen::Matrix<double, 6, 1> u = Eigen::Matrix<double, 6, 1>::Zero();
+      u.block<3, 1>(0, 0) = cam_status.Rwc_nullspace.toRotationMatrix().transpose()*data_.gravity;
+      u.block<3, 1>(3, 0) = MATH_UTILS::skewMatrix<double>(ftr.point_3d - cam_status.pwc_nullspace)*data_.gravity;
+      J_status = J_status - J_status*u*(u.transpose()*u).inverse()*u.transpose();
+      J_Pfj    = -J_status.block<2, 3>(0, 3);
+    }
 
     int cam_iter_cnt = std::distance(cam_window.begin(), cam_window.find(cam_id));
 

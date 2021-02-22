@@ -28,9 +28,16 @@ Time fromUniversal(const int64_t ticks);
 
 class Tick {
 public:
-  Tick(const char* name): 
-    name_(name), begin_time_(Clock::now()) {}
+  Tick(const char* name): name_(name), begin_time_(Clock::now()) {}
+
+  double eclipse() {
+    return chrono::duration_cast<chrono::milliseconds>(Clock::now() - begin_time_).count();
+  }
   
+  void reset() {
+    begin_time_ = Clock::now();
+  }
+
   string print() {
     char info[256];
     sprintf(info, "<%s> Time eclipse: %lf s.", name_.c_str(), toSecond(Clock::now() - begin_time_));

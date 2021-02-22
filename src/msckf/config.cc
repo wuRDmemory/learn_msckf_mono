@@ -36,6 +36,9 @@ int   Config::sliding_window_lens = 0;
 float Config::distance_threshold  = 0;
 float Config::angle_threshold     = 0;
 
+bool Config::save_trajectory = false;
+string Config::save_path = "";
+
 cv::Mat Config::Rbc;
 cv::Mat Config::tbc;
 
@@ -79,6 +82,7 @@ Config::Config(string config_file_path) {
   noise_accl_bias = (float)fs["noise_accl_bias"];
   noise_gyro_bias = (float)fs["noise_gyro_bias"];
   noise_observation = (float)fs["noise_observation"];
+  // noise_observation *= noise_observation;
 
   sliding_window_lens = (int)fs["sliding_window_lens"];
   distance_threshold  = (float)fs["distance_threshold"];
@@ -104,6 +108,9 @@ Config::Config(string config_file_path) {
     feature_config.min_disparity_angle = cos((double)n["min_disparity_angle"]*M_PI/180.);
     feature_config.min_disparity_distance = (double)n["min_disparity_distance"];
   }
+
+  save_trajectory = ((int)fs["save_trajectory"] != 0);
+  fs["save_path"] >> save_path;
 }
 
 Config* Config::getInstance(const char* file_path) {

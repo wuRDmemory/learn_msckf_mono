@@ -48,17 +48,21 @@ noise_accl: 0.0025
 noise_gyro: 0.000025
 noise_accl_bias: 0.0001
 noise_gyro_bias: 0.000001
-noise_observation: 0.001225
+noise_observation: 0.0001225
 
 # feature optimization
 feature:
   max_iter_cnt: 20
-  max_try_cnt: 20
+  max_try_cnt: 10
   converge_threshold: 5.e-7
-  min_disparity_angle: 0 # in deg
+  min_disparity_angle: 5 # in deg
   min_disparity_distance: 0.1
 
 # image noise
 sliding_window_lens: 20
 distance_threshold: 0.5
 angle_threshold: 15 # in deg
+
+# save trajectory
+save_trajectory: 0
+save_path: "/home/ubuntu/catkin_ws/src/learn_msckf/results/trajectory.txt"

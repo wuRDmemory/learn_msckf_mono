@@ -20,8 +20,7 @@ const cv::String keys =
     "{help h usage ?  || todo help              }"
     "{@config_path    || path to config path    }"
     "{@dataset_name   || dataset name           }"
-    "{@dataset_path   || path to dataset        }"
-    "{@save_path      || path to save trajectory}";
+    "{@dataset_path   || path to dataset        }";
 
 int main(int argc, char** argv) {
 
@@ -34,8 +33,7 @@ int main(int argc, char** argv) {
 
   if (   !parser.has("@config_path") 
       || !parser.has("@dataset_path")
-      || !parser.has("@dataset_name")
-      || !parser.has("@save_path")) {
+      || !parser.has("@dataset_name")) {
     parser.printMessage();
     return 0;
   }
@@ -43,11 +41,9 @@ int main(int argc, char** argv) {
   string config_path   = parser.get<string>(0);
   string dataset_name  = parser.get<string>(1);
   string dataset_path  = parser.get<string>(2);
-  string save_path     = parser.get<string>(3);
   cout << "Config  path: \t" << config_path  << endl;
   cout << "Dataset name: \t" << dataset_name << endl;
   cout << "Dataset path: \t" << dataset_path << endl;
-  cout << "Save path:    \t" << save_path    << endl;
 
   // config
   Config::getInstance(config_path.c_str());

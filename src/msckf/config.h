@@ -58,6 +58,10 @@ public:
   //@ feature configuration
   static FeatureConfig feature_config;
 
+  //@ trajectory save
+  static bool save_trajectory;
+  static string save_path;
+
 public:
   static Config* getInstance(const char* file_path = NULL);
 };
