@@ -76,7 +76,8 @@ bool initialFeature(Feature& ftr, CameraWindow& cams) {
   int iter_cnt = 0;
   bool converge = false;
   
-  Eigen::Vector3d old_x = init_postion; //(init_postion(0)/init_postion(2), init_postion(1)/init_postion(2), 1./init_postion(2));
+  // Eigen::Vector3d old_x = init_postion; //(init_postion(0)/init_postion(2), init_postion(1)/init_postion(2), 1./init_postion(2));
+  Eigen::Vector3d old_x(init_postion(0)/init_postion(2), init_postion(1)/init_postion(2), 1./init_postion(2));
   Eigen::Matrix3d JtJ;
   Eigen::Vector3d Jtb;
   double residual = 0;
@@ -146,7 +147,8 @@ bool initialFeature(Feature& ftr, CameraWindow& cams) {
   } while (!converge && iter_cnt++ < Config::feature_config.max_iter_cnt);
 
   bool valid_feature = true;
-  Eigen::Vector3d position = old_x;
+  // Eigen::Vector3d position = old_x;
+  Eigen::Vector3d position(old_x.x()/old_x.z(), old_x.y()/old_x.z(), 1/old_x.z());
   for (const auto& cam_id_obs : ftr.observes) {
     const int cam_id = cam_id_obs.first;
     if (!cams.count(cam_id)) {
@@ -212,7 +214,14 @@ evaluate(const Eigen::Vector3d& Pj_w, const CameraStatus& T_ci, const Eigen::Vec
   const Eigen::Quaterniond R_w_ci = T_ci.Rwc;
   const Eigen::Vector3d    t_w_ci = T_ci.pwc;
 
-  Eigen::Vector3d Pj_ci = R_w_ci.inverse()*(Pj_w - t_w_ci);
+  const double alpha = Pj_w.x();
+  const double beta  = Pj_w.y();
+  const double rho   = Pj_w.z();
+
+  const Eigen::Matrix3d R_ci_w = R_w_ci.toRotationMatrix().transpose();
+  const Eigen::Vector3d t_ci_w = -R_ci_w*t_w_ci;
+
+  Eigen::Vector3d Pj_ci = R_ci_w*Eigen::Vector3d(alpha, beta, 1) + rho*t_ci_w;
   Eigen::Vector3d pj_ci = Pj_ci/Pj_ci(2);
 
   Eigen::Vector2d residual = pj_ci.head<2>() - obs_ci.head<2>();
@@ -222,7 +231,10 @@ evaluate(const Eigen::Vector3d& Pj_w, const CameraStatus& T_ci, const Eigen::Vec
     J_p_P << 1./Pj_ci(2), 0, -Pj_ci(0)/(Pj_ci(2)*Pj_ci(2)),
              0, 1./Pj_ci(2), -Pj_ci(1)/(Pj_ci(2)*Pj_ci(2));
 
-    *jacobian = J_p_P*R_w_ci.inverse().toRotationMatrix();
+    Eigen::Matrix3d J_P_T;
+    J_P_T.leftCols(2)  = R_ci_w.leftCols(2);
+    J_P_T.rightCols(1) = t_ci_w;
+    *jacobian = J_p_P*J_P_T;
   }
 
   return residual;
