@@ -7,6 +7,13 @@
 &nbsp;
 ----
 
+## MSCKF
+1. convert quaternion conversion from JPL to Hamilton;
+
+
+&nbsp;
+---
+
 ## How to use project with ros
 1. this project has some requirements
 	a. glog
@@ -59,7 +66,7 @@ Here:
 -----
 
 ## TODO list
-- change Feature initial Pose from XYZ method to inverse depth method, this may improves the performance.
+- ~~change Feature initial Pose from XYZ method to inverse depth method, this may improves the performance.~~
 - use IEKF in measurements update.
 - add RELOCAL?
 
@@ -67,6 +74,6 @@ Here:
 ----
 
 ## Summary
-1. initial is every important for system, but it's simpler than VINS-Mono.
+1. initial is very important for system, but it's simpler than VINS-Mono.
 2. feature initial's precious also very important.
 3. when prune camera buffer, its better when you involve all observations of the valid feature than only use observations belongs to the camera which will be pruned. This improves the performance when the robot is static.

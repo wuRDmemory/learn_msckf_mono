@@ -831,10 +831,18 @@ bool Msckf::measurementUpdateStatus(const Eigen::MatrixXd& H, const Eigen::Vecto
     F_e = e;
   }
 
+  Eigen::VectorXd  delta_x = Eigen::VectorXd::Zero(H.cols());
   Eigen::MatrixXd& P = data_.P_dx;
   Eigen::MatrixXd  S = F_H*P*F_H.transpose() + Eigen::MatrixXd::Identity(F_H.rows(), F_H.rows())*Config::noise_observation;
   Eigen::MatrixXd  K = (S.ldlt().solve(F_H*P)).transpose();
-  Eigen::VectorXd delta_x = K*F_e;
+  { // IEKF
+    bool coverged = false;
+    for (int i = 0; i < 1 && !coverged; ++i) {
+      Eigen::VectorXd iter_delta_x = K*(F_e - F_H*delta_x);
+      coverged = iter_delta_x.norm() < 1.e-7;
+      delta_x += iter_delta_x;
+    }
+  }
   Eigen::MatrixXd I_KF  = Eigen::MatrixXd::Identity(K.rows(), F_H.cols()) - K*F_H;
   Eigen::MatrixXd new_P = I_KF*P;
 
