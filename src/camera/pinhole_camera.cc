@@ -2,13 +2,10 @@
 
 namespace CAMERA {
 
-PinHoleCamera::PinHoleCamera(cv::FileNode& n):
-    Camera(n) {
-  no_undistort_ = (k1_ == 0);
-}
-
-PinHoleCamera::PinHoleCamera(string camera_config_path):
-    Camera(camera_config_path) {
+PinHoleCamera::PinHoleCamera(int width, int height, std::string type, 
+         float fx, float fy, float cx, float cy, 
+         float k1, float k2, float d1, float d2):
+    Camera(width, height, type, fx, fy, cx, cy, k1, k2, d1, d2) {
   no_undistort_ = (k1_ == 0);
 }
 

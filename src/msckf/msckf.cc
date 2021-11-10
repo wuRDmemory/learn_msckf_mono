@@ -1,32 +1,19 @@
-#include "cfloat"
-#include "limits"
-#include "algorithm"
-
-#include "msckf/msckf.h"
-#include "msckf/config.h"
-#include "msckf/utils.h"
-#include "msckf/math_utils.h"
-#include "msckf/datas.h"
+#include "msckf.h"
 #include "camera/camera.h"
-
-#include "glog/logging.h"
 
 namespace MSCKF {
 
-Msckf::Msckf(string config_path) : 
-    config_path_(config_path), is_stop_(false), is_initial_(false), is_first_image_(true),
-    last_imu_(ImuData{-1, {0., 0., 0.}, {0., 0., 0.}}), 
-    last_track_(TrackResult{-1, {}, {}, {}}), 
-    image_tracker_(nullptr) {
+Msckf::Msckf(string config_path)
+{
   LOG(INFO) << "[MSKCF] Construct msckf.";
+  Config::readConfig(config_path);
+  param_ = Config::msckf_param;
 
-  imu_buffer_.clear();
-  cam_buffer_.clear();
+  std::deque<ImuData>().swap(imu_buffer_);
+  std::deque<CameraData>().swap(cam_buffer_);
 
-  // image_process_thread_ = thread(&Msckf::imageProcess, this);
-  // main_loop_thread_     = thread(&Msckf::mainLoop, this);
-
-  image_tracker_ = absl::make_unique<ImageTracker>(config_path_, Config::track_verbose);
+  image_tracker_ = absl::make_unique<ImageTracker>(Config::track_param, Config::camera_param);
+  sfm_ptr_ = absl::make_unique<SFM>(Config::sfm_param);
 
   for (int i = 1; i < 100; ++i) {
     boost::math::chi_squared chi_squared_dist(i);
@@ -34,19 +21,25 @@ Msckf::Msckf(string config_path) :
   }
 
   setup();
+
+  is_stop_ = false;
+  image_process_thread_ = thread(&Msckf::imageProcess, this);
+  // main_loop_thread_     = thread(&Msckf::mainLoop, this);
 }
 
 Msckf::~Msckf() {
   LOG(INFO) << "[MSKCF] Deconstructing msckf...";
   is_stop_ = true;
-  // image_process_thread_.join();
+  if (image_process_thread_.joinable()) {
+    image_process_thread_.join();
+  }
   // main_loop_thread_.join();
   LOG(INFO) << "[MSKCF] Msckf deconstructed.";
 }
 
-
-bool Msckf::setup() {
-  unique_lock<mutex> lock(mutex_);
+bool Msckf::setup()
+{
+  std::unique_lock<mutex> lock(mutex_);
   data_.imu_status.id = 0;
   data_.imu_status.ts = -1;
   data_.imu_status.ba.setZero();
@@ -56,15 +49,21 @@ bool Msckf::setup() {
   data_.imu_status.vwb.setZero();
   
   { // set extrinsic
-    Eigen::Matrix3d eigen_Rbc;
-    cv::cv2eigen(Config::Rbc, eigen_Rbc);
-    data_.imu_status.Rbc = Eigen::Quaterniond(eigen_Rbc);
+    cv::Mat Rbc;
+    cv::Mat pbc;
+    Config::Tbc.colRange(0, 3).copyTo(Rbc);
+    Config::Tbc.col(3).copyTo(pbc);
     
-    // cout << "Rbc: " << data_.imu_status.Rbc.toRotationMatrix().eulerAngles(2,1,0).transpose()*180/M_PI << endl;
-
-    Eigen::Vector3d eigen_tbc;
-    cv::cv2eigen(Config::tbc, eigen_tbc);
-    data_.imu_status.pbc = eigen_tbc;
+    Eigen::Matrix3d eigen_Rbc;
+    Eigen::Vector3d eigen_pbc;
+    cv::cv2eigen(Rbc, eigen_Rbc);
+    cv::cv2eigen(pbc, eigen_pbc);
+    data_.imu_status.Rbc = Eigen::Quaterniond(eigen_Rbc); 
+    data_.imu_status.pbc = eigen_pbc;
+    if (param_.verbose) {
+      LOG(INFO) << "[MSCKF] Rbc: " << data_.imu_status.Rbc.toRotationMatrix().eulerAngles(2, 1, 0).transpose()*Deg2Rad;
+      LOG(INFO) << "[MSCKF] pbc: " << data_.imu_status.pbc.transpose();
+    }
   }
 
   // set covariance
@@ -79,10 +78,10 @@ bool Msckf::setup() {
 
   // set noise covariance
   data_.Q_imu.setZero();
-  data_.Q_imu.block<3, 3>(G_Ng , G_Ng ) = Eigen::Matrix3d::Identity()*Config::noise_gyro;
-  data_.Q_imu.block<3, 3>(G_Nbg, G_Nbg) = Eigen::Matrix3d::Identity()*Config::noise_gyro_bias;
-  data_.Q_imu.block<3, 3>(G_Na , G_Na ) = Eigen::Matrix3d::Identity()*Config::noise_accl;
-  data_.Q_imu.block<3, 3>(G_Nba, G_Nba) = Eigen::Matrix3d::Identity()*Config::noise_accl_bias;
+  data_.Q_imu.block<3, 3>(G_Ng , G_Ng ) = Eigen::Matrix3d::Identity()*param_.noise_gyro;
+  data_.Q_imu.block<3, 3>(G_Nbg, G_Nbg) = Eigen::Matrix3d::Identity()*param_.noise_gyro_bias;
+  data_.Q_imu.block<3, 3>(G_Na , G_Na ) = Eigen::Matrix3d::Identity()*param_.noise_accl;
+  data_.Q_imu.block<3, 3>(G_Nba, G_Nba) = Eigen::Matrix3d::Identity()*param_.noise_accl_bias;
 
   // set observes
   data_.imu_status.observes.clear();
@@ -90,9 +89,10 @@ bool Msckf::setup() {
   return true;
 }
 
-int Msckf::feedImuData(double time, const Eigen::Vector3f& accl, const Eigen::Vector3f& gyro) {
+int Msckf::feedImuData(double time, const Eigen::Vector3f& accl, const Eigen::Vector3f& gyro)
+{
   {
-    std::unique_lock<mutex> lock(imu_mutex_);
+    std::unique_lock<std::mutex> lock(imu_mutex_);
     imu_buffer_.push_back(ImuData{time, accl, gyro});
   }
 
@@ -103,10 +103,6 @@ int Msckf::feedImuData(double time, const Eigen::Vector3f& accl, const Eigen::Ve
 }
 
 int Msckf::feedImage(double time, const cv::Mat& image) {
-  // std::unique_lock<mutex> lock(cam_mutex_);
-  // cam_buffer_.push_back(CameraData{time, image});
-  // return (int)cam_buffer_.size();
-
   if (!is_initial_) {
     return 0;
   }
@@ -115,18 +111,21 @@ int Msckf::feedImage(double time, const cv::Mat& image) {
     is_first_image_ = false;
   }
 
-  if (!image_tracker_->feedImage(time, image)) {
-    return 0;
-  }
+  std::unique_lock<std::mutex> lock(cam_mutex_);
+  cam_buffer_.push_back(CameraData{time, image});
+  return (int)cam_buffer_.size();
 
-  unique_lock<mutex> lock(mutex_);
-  TrackResult track_result = image_tracker_->fetchResult();
+  // if (!image_tracker_->feedImage(time, image)) {
+  //   return 0;
+  // }
 
-  return feedTrackResult(track_result);
+  // unique_lock<mutex> lock(mutex_);
+  // return feedTrackResult(image_tracker_->fetchResult());
 }
 
-FeatureManager Msckf::clearLoseFeature() {
-  unique_lock<mutex> lock(mutex_);
+FeatureManager Msckf::clearLoseFeature()
+{
+  std::unique_lock<std::mutex> lock(mutex_);
 
   FeatureManager ret;
   FeatureManager::iterator iter = data_.features_.begin();
@@ -143,9 +142,8 @@ FeatureManager Msckf::clearLoseFeature() {
   return ret;
 }
 
-void Msckf::imageProcess() {
-  unique_ptr<ImageTracker> image_tracker(new ImageTracker(config_path_, Config::track_verbose));
-
+void Msckf::imageProcess()
+{
   LOG(INFO) << "[MSCKF] Image process begin...";
   while (!is_stop_) {
     if (cam_buffer_.empty()) {
@@ -156,59 +154,61 @@ void Msckf::imageProcess() {
     while (!cam_buffer_.empty()) {
       CameraData data;
       {
-        unique_lock<mutex> lock(cam_mutex_);
+        std::unique_lock<std::mutex> lock(cam_mutex_);
         data = cam_buffer_.front();
         cam_buffer_.pop_front();
       }
 
-      if (image_tracker->feedImage(data.ts, data.image)) {
-        unique_lock<mutex> lock(mutex_);
-        track_buffer_.push_back(image_tracker->fetchResult());
+      if (image_tracker_->feedImage(data.ts, data.image)) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        feedTrackResult(image_tracker_->fetchResult());
       }
+      this_thread::sleep_for(1ms);
     }
   }
 
   LOG(INFO) << "[MSCKF] Image process done!!!";
 }
 
-bool Msckf::initialization() {
+bool Msckf::initialization()
+{
+  size_t N = 0;
   double timestamp = DBL_MIN;
   Eigen::Vector3f accl_sum(0, 0, 0), accl2_sum(0, 0, 0);
   Eigen::Vector3f gyro_sum(0, 0, 0), gyro2_sum(0, 0, 0);
   
   {
     std::unique_lock<mutex> lock(imu_mutex_);
-    if (imu_buffer_.size() < Config::inertial_init_cnt) {
+    if (imu_buffer_.size() < Config::init_param.imu_cnt) {
       return false;
-    } 
+    }
 
     for (size_t i = 0; i < imu_buffer_.size(); ++i) {
       const ImuData& imu_data = imu_buffer_.at(i);
-
-      timestamp = max(timestamp, imu_data.ts);
-
-      accl_sum += imu_data.accl;
-      gyro_sum += imu_data.gyro;
-
+      timestamp = imu_data.ts;
+      accl_sum  += imu_data.accl;
+      gyro_sum  += imu_data.gyro;
       accl2_sum += imu_data.accl.cwiseAbs2();
       gyro2_sum += imu_data.gyro.cwiseAbs2();
+      ++N;
     }
   }
 
-  Eigen::Vector3f accl_mean  = accl_sum/imu_buffer_.size();
-  Eigen::Vector3f gyro_mean  = gyro_sum/imu_buffer_.size();
-  Eigen::Vector3f accl2_mean = accl2_sum/imu_buffer_.size();
-  Eigen::Vector3f gyro2_mean = gyro2_sum/imu_buffer_.size();
+  Eigen::Vector3f accl_mean  = accl_sum / N;
+  Eigen::Vector3f gyro_mean  = gyro_sum / N;
+  Eigen::Vector3f accl2_mean = accl2_sum / N;
+  Eigen::Vector3f gyro2_mean = gyro2_sum / N;
 
   Eigen::Vector3f accl_cov = accl2_mean - accl_mean.cwiseAbs2();
   Eigen::Vector3f gyro_cov = gyro2_mean - gyro_mean.cwiseAbs2();
 
-  LOG(INFO) << "Accl covariance: " << accl_cov.transpose();
-  LOG(INFO) << "Gyro covariance: " << gyro_cov.transpose();
+  if (Config::init_param.verbose) {
+    LOG(INFO) << "[INIT] Accl covariance: " << accl_cov.transpose();
+    LOG(INFO) << "[INIT] Gyro covariance: " << gyro_cov.transpose();
+  }
 
-  if (   accl_cov.maxCoeff() < Config::inertial_init_accl_cov 
-      && gyro_cov.maxCoeff() < Config::inertial_init_gyro_cov) {
-
+  if (   accl_cov.maxCoeff() < Config::init_param.imu_accl_cov 
+      && gyro_cov.maxCoeff() < Config::init_param.imu_gyro_cov) {
     data_.imu_status.bg = gyro_mean.cast<double>();
     data_.imu_status.ba.setZero();
     
@@ -227,12 +227,14 @@ bool Msckf::initialization() {
     // data_.imu_status.Rwb = MATH_UTILS::eulerToQuaternion<double>(Eigen::Vector3d(0, angles[1], angles[2]));
     // angles = data_.imu_status.Rwb.toRotationMatrix().eulerAngles(2, 1, 0);
 
-    LOG(INFO) << std::setprecision(15) << "[Initial] IMU initialization success in " << timestamp << "s.";
-    LOG(INFO) << "[Initial] Gravity is:   " << data_.gravity.transpose();
-    LOG(INFO) << "[Initial] GYRO bias:    " << gyro_mean.transpose();
-    LOG(INFO) << "[Initial] Initial Pose: " << angles.transpose()*180.0/M_PI;
+    if (Config::init_param.verbose) {
+      LOG(INFO) << std::fixed << std::setprecision(4) << "[INIT] IMU initialization success in " << timestamp << "s.";
+      LOG(INFO) << std::fixed << std::setprecision(4) << "[INIT] Gravity is:   " << data_.gravity.transpose();
+      LOG(INFO) << std::fixed << std::setprecision(4) << "[INIT] GYRO bias:    " << gyro_mean.transpose();
+      LOG(INFO) << std::fixed << std::setprecision(4) << "[INIT] Initial Pose: " << angles.transpose()*Rad2Deg;
+    }
 
-    unique_lock<mutex> lock(imu_mutex_);
+    std::unique_lock<std::mutex> lock(imu_mutex_);
     while (!imu_buffer_.empty() && imu_buffer_.front().ts <= timestamp) {
       imu_buffer_.pop_front();
     }
@@ -240,16 +242,17 @@ bool Msckf::initialization() {
     return true;
   }
 
-  unique_lock<mutex> lock(imu_mutex_);
-  for (size_t i = 0; i < Config::inertial_init_cnt/10; ++i) {
+  std::unique_lock<std::mutex> lock(imu_mutex_);
+  for (size_t i = 0; i < imu_buffer_.size()/10; ++i) {
     imu_buffer_.pop_front();
   }
 
   return false;
 }
 
-bool Msckf::feedTrackResult(TrackResult& track_result) {
-  vector<ImuData> imu_data;
+bool Msckf::feedTrackResult(const TrackResult& track_result)
+{
+  std::vector<ImuData> imu_data;
   {
     unique_lock<mutex> lock(imu_mutex_);
     while (!imu_buffer_.empty() && imu_buffer_.front().ts <= track_result.ts) {
@@ -270,31 +273,16 @@ bool Msckf::feedTrackResult(TrackResult& track_result) {
     last_imu_ = imu_data[i];
   }
 
-  set<int> obs_set(track_result.point_id.begin(), track_result.point_id.end());
+  std::set<int> obs_set(track_result.point_id.begin(), track_result.point_id.end());
   data_.imu_status.observes.swap(obs_set);
   
-  // TODO: test time eclipse
-  COMMON::Tick tick("timer");
+  COMMON::TicToc tick;
   predictCamStatus(track_result);
-
   featureUpdateStatus();
-  
   pruneCameraStatus();
 
-  if (Config::save_trajectory) {
-    static bool first = true;
-    if (first) {
-      first = false;
-      ofstream out(Config::save_path);
-      out.close();
-    }
-
-    ofstream out(Config::save_path, std::ios_base::app);
-    const ImuStatus& imu_status = data_.imu_status;
-    out << setprecision(15) << imu_status.ts << " "
-        << imu_status.pwb.x() << " " << imu_status.pwb.y() << " " << imu_status.pwb.z() << " "
-        << imu_status.Rwb.x() << " " << imu_status.Rwb.y() << " " << imu_status.Rwb.z() << " " << imu_status.Rwb.w() << endl;
-    out.close();
+  if (param_.verbose) {
+    LOG(INFO) << "[MSCKF] Update speed " << tick.toc() << "s.";
   }
 
   data_.imu_status.id++;
@@ -367,7 +355,7 @@ bool Msckf::predictImuStatus(const Eigen::Vector3d& accl_m, const Eigen::Vector3
     cout << dt << endl;
   }
 
-  { // OC-KF 
+  if (1) { // OC-KF 
     // A. change delta_theta
     Phi.block<3, 3>(J_R, J_R) = imu_status.Rwb.toRotationMatrix().transpose()*imu_status.Rwb_nullspace.toRotationMatrix();
     // B. change delta_v
@@ -465,13 +453,13 @@ bool Msckf::predictCamStatus(const TrackResult& track_result) {
 }
 
 bool Msckf::featureUpdateStatus() {
-  ImuStatus&      imu_status  = data_.imu_status;
+  ImuStatus&    imu_status = data_.imu_status;
+  CameraWindow& cam_window = data_.cameras_;
   FeatureManager& ftr_manager = data_.features_;
-  CameraWindow&   cam_window  = data_.cameras_;
   
   // A. find point which is losed
-  vector<int> invalid_feature_id;
-  vector<int> lose_feature_id;
+  std::vector<int> invalid_feature_id;
+  std::vector<int> lose_feature_id;
   for (auto& id_ftr : data_.features_) {
     const int id = id_ftr.first;
     Feature& ftr = id_ftr.second;
@@ -486,7 +474,7 @@ bool Msckf::featureUpdateStatus() {
     }
 
     if (ftr.status == FeatureStatus::NotInit) {
-      if (!(checkMotion(ftr, data_.cameras_) && initialFeature(ftr, data_.cameras_))) {
+      if (!(sfm_ptr_->checkMotion(ftr, data_.cameras_) && sfm_ptr_->initialFeature(ftr, data_.cameras_))) {
         invalid_feature_id.push_back(id);
         continue;
       }
@@ -500,6 +488,10 @@ bool Msckf::featureUpdateStatus() {
 
   if (lose_feature_id.empty()) {
     return false;
+  }
+
+  if (param_.verbose) {
+    LOG(INFO) << "[LOSE] Lose feature: " << lose_feature_id.size() << " | " << invalid_feature_id.size();
   }
 
   // B. use lose features to update all status.
@@ -524,8 +516,9 @@ bool Msckf::featureUpdateStatus() {
     Eigen::VectorXd e_fj;
 
     std::set<int> constraint_cam_id;
-    for (const auto& id_data : ftr.observes) 
+    for (const auto& id_data : ftr.observes) {
       constraint_cam_id.insert(id_data.first);
+    }
 
     featureJacobian(ftr, data_.cameras_, constraint_cam_id, H_fj, e_fj);
     arows += H_fj.rows();
@@ -539,6 +532,10 @@ bool Msckf::featureUpdateStatus() {
   
   CHECK_EQ(arows, jacobian_rows);
   CHECK_LE(rows,  jacobian_rows);
+
+  if (rows == 0) {
+    return false;
+  }
 
   H.conservativeResize(rows, jacobian_cols);
   e.conservativeResize(rows);
@@ -561,7 +558,7 @@ bool Msckf::featureUpdateStatus() {
 
 bool Msckf::pruneCameraStatus() {
   CameraWindow& cameras = data_.cameras_;
-  if (cameras.size() < Config::sliding_window_lens) {
+  if (cameras.size() < param_.sliding_window_lens) {
     return false;
   } 
 
@@ -594,14 +591,14 @@ bool Msckf::pruneCameraStatus() {
 
     common_vis_cnt++;
     if (ftr.status == FeatureStatus::NotInit) {
-      if (!checkMotion(ftr, cameras)) {
+      if (!sfm_ptr_->checkMotion(ftr, cameras)) {
         for (int cam_id : constraint_cam_id) {
           observe.erase(cam_id);
         }
         motion_invalid_cnt++;
         continue;
       }
-      else if (!initialFeature(ftr, cameras)) {
+      else if (!sfm_ptr_->initialFeature(ftr, cameras)) {
         for (int cam_id : constraint_cam_id) {
           observe.erase(cam_id);
         }
@@ -619,58 +616,55 @@ bool Msckf::pruneCameraStatus() {
     }
   }
 
-  if (jacobian_rows == 0) {
-    ; // LOG(INFO) << "[prune] No candidate cam status should be prune." << valid_vis_cnt <<"/"<< motion_invalid_cnt << "/" << init_invalid_cnt << "/" << valid_vis_cnt;
+  if (jacobian_rows != 0) {
+    Eigen::MatrixXd H = Eigen::MatrixXd::Zero(jacobian_rows, cameras.size()*6 + 3*IMU_STATUS_NUM);
+    Eigen::VectorXd e = Eigen::VectorXd::Zero(jacobian_rows);
+
+    int arows = 0;
+    int rows = 0;
+    for (auto& id_data : data_.features_) {
+      Feature& ftr = id_data.second;
+      auto& observe = ftr.observes;
+
+      set<int> constraint_cam_id;
+      for (int cam_id : remove_cam_id) {
+        if (observe.count(cam_id)) 
+          constraint_cam_id.insert(cam_id);
+      }
+
+      if (constraint_cam_id.size() == 0)
+        continue;
+
+      constraint_cam_id.clear();
+      for (auto& id_data : observe) {
+        constraint_cam_id.insert(id_data.first);
+      }
+
+      Eigen::MatrixXd H_fj;
+      Eigen::VectorXd e_fj;
+      featureJacobian(ftr, cameras, constraint_cam_id, H_fj, e_fj);
+
+      arows += H_fj.rows();
+      if (gatingTest(H_fj, e_fj, constraint_cam_id.size())) {
+        H.block(rows, 0, H_fj.rows(), H_fj.cols()) = H_fj;
+        e.segment(rows,  e_fj.rows())              = e_fj;
+        rows                                      += H_fj.rows();
+      }
+
+      for (int cam_id : remove_cam_id) {
+        observe.erase(cam_id);
+      }
+    }
+
+    CHECK_EQ(arows, jacobian_rows);
+    CHECK_LE(rows,  jacobian_rows);
+
+    H.conservativeResize(rows,  cameras.size()*6 + 3*IMU_STATUS_NUM);
+    e.conservativeResize(rows);
+
+    measurementUpdateStatus(H, e);
   }
-
-  Eigen::MatrixXd H = Eigen::MatrixXd::Zero(jacobian_rows, cameras.size()*6 + 3*IMU_STATUS_NUM);
-  Eigen::VectorXd e = Eigen::VectorXd::Zero(jacobian_rows);
-
-  int arows = 0;
-  int rows = 0;
-  for (auto& id_data : data_.features_) {
-    Feature& ftr = id_data.second;
-    auto& observe = ftr.observes;
-
-    set<int> constraint_cam_id;
-    for (int cam_id : remove_cam_id) {
-      if (observe.count(cam_id)) 
-        constraint_cam_id.insert(cam_id);
-    }
-
-    if (constraint_cam_id.size() == 0)
-      continue;
-
-    constraint_cam_id.clear();
-    for (auto& id_data : observe) {
-      constraint_cam_id.insert(id_data.first);
-    }
-
-    Eigen::MatrixXd H_fj;
-    Eigen::VectorXd e_fj;
-    featureJacobian(ftr, cameras, constraint_cam_id, H_fj, e_fj);
-
-    arows += H_fj.rows();
-    if (gatingTest(H_fj, e_fj, constraint_cam_id.size())) {
-      H.block(rows, 0, H_fj.rows(), H_fj.cols()) = H_fj;
-      e.segment(rows,  e_fj.rows())              = e_fj;
-      rows                                      += H_fj.rows();
-    }
-
-    for (int cam_id : remove_cam_id) {
-      observe.erase(cam_id);
-    }
-  }
-
-  CHECK_EQ(arows, jacobian_rows);
-  CHECK_LE(rows,  jacobian_rows);
-
-  H.conservativeResize(rows,  cameras.size()*6 + 3*IMU_STATUS_NUM);
-  e.conservativeResize(rows);
-
-  measurementUpdateStatus(H, e);
   
-  //TODO: remove corresponding line in covariance matrix.
   Eigen::MatrixXd& P = data_.P_dx;
   for (const auto& cam_id : remove_cam_id) {
     int cam_sequence     = std::distance(cameras.begin(), cameras.find(cam_id));
@@ -689,7 +683,6 @@ bool Msckf::pruneCameraStatus() {
       P.conservativeResize(old_rows - 6, old_cols - 6);
     }
 
-    // Remove this camera state in the state vector.
     cameras.erase(cam_id);
   }
 
@@ -741,7 +734,7 @@ bool Msckf::featureJacobian(const Feature& ftr, const CameraWindow& cam_window, 
     
     Eigen::Vector2d res = getJacobian(cam_ob, ftr.point_3d, cam_status, J_status, J_Pfj);
 
-    { // OC-KF
+    if (1) { // OC-KF
       Eigen::Matrix<double, 6, 1> u = Eigen::Matrix<double, 6, 1>::Zero();
       u.block<3, 1>(0, 0) = cam_status.Rwc_nullspace.toRotationMatrix().transpose()*data_.gravity;
       u.block<3, 1>(3, 0) = MATH_UTILS::skewMatrix<double>(ftr.point_3d - cam_status.pwc_nullspace)*data_.gravity;
@@ -790,8 +783,8 @@ bool Msckf::findRedundanceCam(CameraWindow& cameras, vector<int>& remove_cam_id)
     double distance = (position-key_position).norm();
     double angle = Eigen::AngleAxisd(rotation*key_rotation.transpose()).angle();
 
-    if (   angle < Config::angle_threshold 
-        && distance < Config::distance_threshold
+    if (   angle < param_.angle_threshold 
+        && distance < param_.distance_threshold
         && track_rate_ > 0.5) {
       remove_cam_id.push_back(cam_state_iter->first);
       ++cam_state_iter;
@@ -833,7 +826,7 @@ bool Msckf::measurementUpdateStatus(const Eigen::MatrixXd& H, const Eigen::Vecto
 
   Eigen::VectorXd  delta_x = Eigen::VectorXd::Zero(H.cols());
   Eigen::MatrixXd& P = data_.P_dx;
-  Eigen::MatrixXd  S = F_H*P*F_H.transpose() + Eigen::MatrixXd::Identity(F_H.rows(), F_H.rows())*Config::noise_observation;
+  Eigen::MatrixXd  S = F_H*P*F_H.transpose() + Eigen::MatrixXd::Identity(F_H.rows(), F_H.rows())*param_.noise_observation;
   Eigen::MatrixXd  K = (S.ldlt().solve(F_H*P)).transpose();
   { // IEKF
     bool coverged = false;
@@ -878,7 +871,7 @@ bool Msckf::measurementUpdateStatus(const Eigen::MatrixXd& H, const Eigen::Vecto
 
 bool Msckf::gatingTest(const Eigen::MatrixXd& H, const Eigen::VectorXd& r, const int v) {
   Eigen::MatrixXd P1 = H*data_.P_dx*H.transpose();
-  Eigen::MatrixXd P2 = Config::noise_observation*Eigen::MatrixXd::Identity(H.rows(), H.rows());
+  Eigen::MatrixXd P2 = param_.noise_observation*Eigen::MatrixXd::Identity(H.rows(), H.rows());
   double gamma = r.transpose() * (P1+P2).ldlt().solve(r);
 
   //cout << dof << " " << gamma << " " <<

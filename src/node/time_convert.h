@@ -11,6 +11,6 @@
 
 using namespace std;
 
-ros::Time toRos(const COMMON::Time& time);
+// ros::Time toRos(const COMMON::Time& time);
 
-COMMON::Time fromRos(const ros::Time& time);
+// COMMON::Time fromRos(const ros::Time& time);

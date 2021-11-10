@@ -6,9 +6,9 @@ namespace CAMERA {
 
 class PinHoleCamera : public Camera {
 public:
-  PinHoleCamera(cv::FileNode& n);
-
-  PinHoleCamera(string camera_config_path);
+  PinHoleCamera(int width, int height, string type, 
+         float fx, float fy, float cx, float cy, 
+         float k1, float k2, float d1, float d2);
 
   PinHoleCamera(const PinHoleCamera& camera) = delete;
 
@@ -26,7 +26,7 @@ private:
   cv::Point2f distortion(const cv::Point2f& pu) const ;
 
 private:
-  bool no_undistort_;
+  bool no_undistort_ = true;
 };
 
 } // namespace CAMERA

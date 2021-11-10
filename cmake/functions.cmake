@@ -16,8 +16,10 @@ function(init_project PROJECT_DIR)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=uninitialized")
 
   if (CMAKE_BUILD_TYPE STREQUAL "Release")
+    message("-- Build TYPE release")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -DNDEBUG")
   else()
+    message("-- Build TYPE debug")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g2")
   endif()
 

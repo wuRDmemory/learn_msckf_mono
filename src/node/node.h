@@ -65,9 +65,9 @@ private:
 
   bool launchPublisher();
 
-  bool publishCamPath() EXCLUSIVE_LOCKS_REQUIRED(metex_);
+  bool publishCamPath() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
-  bool publishPointCloud() EXCLUSIVE_LOCKS_REQUIRED(metex_);
+  bool publishPointCloud() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   bool publishImuPath() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   

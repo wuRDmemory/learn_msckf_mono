@@ -34,9 +34,7 @@ bool setup(int argc, char** argv) {
     return false;
   }
 
-  Config::getInstance(FLAGS_config_file.c_str());
-
-  LOG(INFO) << "Setup down";
+  LOG(INFO) << "Setup down.";
   return true;
 }
 

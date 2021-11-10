@@ -1,6 +1,4 @@
-#include "msckf/tracker.h"
-#include "msckf/config.h"
-#include "glog/logging.h"
+#include "tracker.h"
 
 namespace MSCKF {
 
@@ -29,11 +27,16 @@ cv::Point2f projectToImage(const cv::Point3f& pc, const cv::Mat& K) {
 
 int ImageTracker::ID = 0;
 
-ImageTracker::ImageTracker(string camera_config_file, bool verbose) :
-    prev_pub_ts_(0), verbose_(verbose), 
-    camera_(absl::make_unique<CAMERA::PinHoleCamera>(camera_config_file)){
-  
-  const int width = camera_->width();
+ImageTracker::ImageTracker(TrackParam &param, CameraParam &camera_param) :
+    param_(param)
+{
+  camera_ = CAMERA::CameraFactory::createCamera(
+    camera_param.width, camera_param.height, camera_param.type,
+    camera_param.fx, camera_param.fy, camera_param.cx, camera_param.cy,
+    camera_param.k1, camera_param.k2, camera_param.d1, camera_param.d2
+  );
+
+  const int width  = camera_->width();
   const int height = camera_->height();
   const int width_step  = width/3;
   const int height_step = height/3;
@@ -52,19 +55,33 @@ ImageTracker::ImageTracker(string camera_config_file, bool verbose) :
   LOG(INFO) << "Image Tracker start!!!";
 }
 
-bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image) {
+ImageTracker::~ImageTracker()
+{
+  if (camera_) {
+    delete camera_;
+  }
+}
+
+bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image)
+{
   last_ts_ = time;
   
   char info[256];
   const double delta_time = time - prev_pub_ts_;
-  const bool   publish    = (delta_time >= Config::track_frequency);
+  const bool   publish    = (delta_time >= param_.track_frequency);
 
   // track process
   vector<cv::Point2f> curr_points;
   if (!last_points_.empty()) {
-    vector<uchar>       status;
-    vector<float>       errors;
+    std::vector<uchar> status;
+    std::vector<float> errors;
     cv::calcOpticalFlowPyrLK(last_image_, curr_image, last_points_, curr_points, status, errors);
+    reduceVector<int>(points_id_, status);
+    reduceVector<int>(track_cnt_, status);
+    reduceVector<cv::Point2f>(curr_points,  status);
+    reduceVector<cv::Point2f>(prev_points_, status);
+    
+    status = checkOutOfBorder(curr_points);
     reduceVector<int>(points_id_, status);
     reduceVector<int>(track_cnt_, status);
     reduceVector<cv::Point2f>(curr_points,  status);
@@ -80,7 +97,7 @@ bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image) {
 
   if (publish) {
     sprintf(info, "[TRACKER] Publish data in %lf", time);
-    LOG_IF(INFO, verbose_) << info;
+    LOG_IF(INFO, param_.verbose) << info;
 
     prev_pub_ts_ = time;
 
@@ -93,23 +110,23 @@ bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image) {
     reduceVector<cv::Point2f>(prev_points_un_, status);
     reduceVector<cv::Point2f>(last_points_un_, status);
 
-    sprintf(info, "[TRACKER] Tracking %d -> %d point.", old_point_cnt, (int)last_points_.size());
-    LOG_IF(INFO, verbose_) << info;
+    sprintf(info, "[TRACKER] Tracking %d -> %zu point.", old_point_cnt, last_points_.size());
+    LOG_IF(INFO, param_.verbose) << info;
 
     velocity_ = computeVelocity(false);
 
-    if (Config::max_cornor_num - last_points_.size() >= 9) {
-      COMMON::Tick tick("set-mask");
+    if (param_.max_cornor_num - (int)last_points_.size() >= 9) {
+      COMMON::TicToc tick;
       cv::Mat mask = setMask();
-      LOG_IF(INFO, verbose_) << tick.print();
+      LOG_IF(INFO, param_.verbose) << "[TRACKER] Make mask takes " << tick.toc() << "s.";
 
       vector<cv::Point2f> add_points;
-      const int add_points_cnt = Config::max_cornor_num - (int)last_points_.size();
+      const int add_points_cnt = param_.max_cornor_num - (int)last_points_.size();
       const int add_points_each_roi = floor(add_points_cnt/(int)rois_.size());
       for (int i = 0; i < rois_.size(); ++i) {
         int cnt = (i != (int)rois_.size()-1) ? add_points_each_roi : (add_points_cnt - int(rois_.size()-1)*add_points_each_roi);
         vector<cv::Point2f> add_points_vec_each_roi;
-        cv::goodFeaturesToTrack(last_image_(rois_[i]), add_points_vec_each_roi, cnt, 0.01, Config::min_cornor_gap, mask(rois_[i]));
+        cv::goodFeaturesToTrack(last_image_(rois_[i]), add_points_vec_each_roi, cnt, 0.01, param_.min_cornor_gap, mask(rois_[i]));
 
         cv::Point2f shift = rois_[i].tl();
         for (cv::Point2f& p : add_points_vec_each_roi) {
@@ -127,7 +144,7 @@ bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image) {
       }
 
       sprintf(info, "[TRACKER] Add %d new point.", (int)add_points.size());
-      LOG_IF(INFO, verbose_) << info;
+      LOG_IF(INFO, param_.verbose) << info;
     }
 
     prev_points_    = last_points_;
@@ -166,18 +183,33 @@ vector<uchar> ImageTracker::checkWithFundamental() {
   }
   
   if (last_points_.size() > 8) {
-    vector<uchar> status;
-    cv::findFundamentalMat(prev_points_un_, last_points_un_, cv::FM_RANSAC, Config::fm_threshold/Config::fx, 0.99, status);
+    std::vector<uchar> status;
+    cv::findFundamentalMat(prev_points_un_, last_points_un_, cv::FM_RANSAC, param_.fm_threshold/camera_->fx(), 0.99, status);
     return status;
   }
   else {
-    return vector<uchar>(last_points_.size(), 1);
+    return std::vector<uchar>(last_points_.size(), 1);
   }
 }
 
-cv::Mat ImageTracker::setMask() {
-            
-  cv::Mat mask(Config::height, Config::width, CV_8UC1, 255);
+std::vector<uchar> ImageTracker::checkOutOfBorder(const std::vector<cv::Point2f> &pts)
+{
+  std::vector<uchar> status(pts.size(), 1);
+  const int width = camera_->width();
+  const int height = camera_->height();
+  for (size_t i = 0; i < pts.size(); ++i) {
+    const cv::Point2f &pt = pts[i];
+    if (0 <= pt.x && pt.x < width && 0 <= pt.y && pt.y < height) {
+      continue;
+    }
+    status[i] = 0;
+  }
+  return status;
+}
+
+cv::Mat ImageTracker::setMask()
+{
+  cv::Mat mask(camera_->height(), camera_->width(), CV_8UC1, 255);
 
   struct TempData {
     int id, heat;
@@ -207,7 +239,7 @@ cv::Mat ImageTracker::setMask() {
       track_cnt_.push_back(data.heat);
       last_points_.push_back(data.point);
       last_points_un_.push_back(data.point_un);
-      cv::circle(mask, data.point, Config::min_cornor_gap, 0, -1);
+      cv::circle(mask, data.point, param_.min_cornor_gap, 0, -1);
     }
   }
 
@@ -225,7 +257,7 @@ cv::Point2f ImageTracker::computeVelocity(bool show_match) {
 
     for (size_t i = 0; i < last_points_.size(); ++i) {
       const cv::Point2f prev_point = prev_points_[i];
-      const cv::Point2f last_point = last_points_[i] + cv::Point2f(Config::width, 0);
+      const cv::Point2f last_point = last_points_[i] + cv::Point2f(camera_->width(), 0);
 
       cv::Scalar color;
       cv::theRNG().fill(color, CV_8U, 0, 255);
@@ -257,7 +289,7 @@ void ImageTracker::testUndistortPoint() {
   cv::hconcat(last_image_, undistort_image, show);
   cv::cvtColor(show, show, cv::COLOR_GRAY2BGR);
 
-  cv::Point2f stride(Config::width, 0);
+  cv::Point2f stride(camera_->width(), 0);
 
   for (size_t i = 0; i < last_points_.size(); ++i) {
 

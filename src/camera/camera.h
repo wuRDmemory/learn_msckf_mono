@@ -12,49 +12,6 @@ namespace CAMERA {
 
 class Camera {
 public:
-  Camera(string config_path) {
-    assert(!config_path.empty());
-    cv::FileStorage fs(config_path, cv::FileStorage::READ);
-    assert(fs.isOpened());
-
-    cv::FileNode n = fs["camera"];
-    assert(!n.empty());
-
-    n["type"] >> type_;
-
-    width_  = (int)n["width"];
-    height_ = (int)n["height"];
-
-    fx_ = (float)n["fx"];
-    fy_ = (float)n["fy"];
-    cx_ = (float)n["cx"];
-    cy_ = (float)n["cy"];
-
-    k1_ = (float)n["k1"];
-    k2_ = (float)n["k2"];
-    d1_ = (float)n["d1"];
-    d2_ = (float)n["d2"];
-  }
-
-  Camera(cv::FileNode& n) {
-    assert(!n.empty());
-
-    n["type"] >> type_;
-
-    width_  = (int)n["width"];
-    height_ = (int)n["height"];
-
-    fx_ = (float)n["fx"];
-    fy_ = (float)n["fy"];
-    cx_ = (float)n["cx"];
-    cy_ = (float)n["cy"];
-
-    k1_ = (float)n["k1"];
-    k2_ = (float)n["k2"];
-    d1_ = (float)n["d1"];
-    d2_ = (float)n["d2"];
-  }
-
   Camera(int width, int height, string type, 
          float fx, float fy, float cx, float cy, 
          float k1, float k2, float d1, float d2) :
