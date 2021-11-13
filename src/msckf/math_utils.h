@@ -22,6 +22,20 @@ Eigen::Matrix<T, 3, 3> skewMatrix(const Eigen::Matrix<T, 3, 1>& vec) {
   return skew;
 }
 
+template<typename T>
+Eigen::Matrix<T, 3, 1> quaternionToRotateVector(const Eigen::Quaternion<T>& q)
+{
+  Eigen::Quaternion<T> q_n = q;
+  if (0.9998 > q.norm() || q.norm() > 1.0002) {
+    q_n.normalize();
+  }
+  T theta = 2.0*acos(q_n.w());
+  T sin_half_theta = std::sqrt(1.0 - q_n.w() * q_n.w());
+  Eigen::Matrix<T, 3, 1> vec = q_n.vec() / sin_half_theta;
+
+  return vec * theta;
+}
+
 template<typename T> 
 Eigen::Quaternion<T> rotateVecToQuaternion(const Eigen::Matrix<T, 3, 1>& rotate_vec) {
   const double theta = rotate_vec.norm();

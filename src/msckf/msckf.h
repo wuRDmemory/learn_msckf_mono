@@ -88,17 +88,26 @@ public:
 	bool pruneCameraStatus()
 			EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
+  bool buildProblemWithFeature(const std::vector<int>& ftr_id, int measure_dim, Eigen::MatrixXd& H, Eigen::VectorXd &e)
+			EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
 	bool featureJacobian(const Feature& ftr, const CameraWindow& cam_window, const set<int>& constraint_cam_id, Eigen::MatrixXd& H_fj, Eigen::VectorXd& e_fj) 
 			EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
 	bool measurementUpdateStatus(const Eigen::MatrixXd& H, const Eigen::VectorXd& e) 
 			EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
+  bool measurementUpdateIKF(const std::vector<int>& ftr_id, int measure_dim) 
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
 	bool findRedundanceCam(CameraWindow& cameras, vector<int>& remove_cam_id) 
 			EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
 	bool gatingTest(const Eigen::MatrixXd& H, const Eigen::VectorXd& r, const int v)
 			EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
+  bool updateStates(const Eigen::VectorXd& delta_x) 
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 };
 
 } // namespace MSCKF
