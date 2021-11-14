@@ -31,6 +31,7 @@ struct MsckfParam {
   double noise_observation;
 
   // Sliding window param
+  int ikf_iters;
   int sliding_window_lens;
   double angle_threshold;
   double distance_threshold;

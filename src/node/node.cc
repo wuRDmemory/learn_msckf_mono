@@ -19,15 +19,30 @@ Node::Node(ros::NodeHandle& n, string config_file)
   launchPublisher();
   wall_timer_ = n_.createWallTimer<Node>(ros::WallDuration(0.1), &Node::walltimerCallBack, this);
   msckf_.reset(new MSCKF::Msckf(config_file));
+  msckf_->setCallBack(std::bind(&Node::infoCallBack, this, 
+      std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 }
 
 Node::~Node() {
+  if (!all_imu_pose_.empty()) {
+    std::ofstream fp("/tmp/msckf_trajectory.csv");
+    if (fp.is_open()) {
+      for (const auto& state : all_imu_pose_) {
+        double ts = state.ts;
+        Eigen::Quaterniond Rwb = state.Rwb;
+        Eigen::Vector3d pwb = state.pwb;
+        fp << std::fixed << std::setprecision(6) 
+            << ts << " " << pwb.x() << " " << pwb.y() << " " << pwb.z() << " "
+            << Rwb.x() << " " << Rwb.y() << " " << Rwb.z() << " " << Rwb.w() << std::endl;
+      }
+    }
+  }
   LOG(INFO) << "Finish node";
 }
 
 bool Node::launchSubscriber() {
-  subscribers_.push_back(n_.subscribe<sensor_msgs::Imu>(imu_sub_name,   100000, &Node::imuCallBack,   this));
-  subscribers_.push_back(n_.subscribe<sensor_msgs::Image>(img_sub_name, 100000, &Node::imageCallBack, this));
+  subscribers_.push_back(n_.subscribe<sensor_msgs::Imu>(imu_sub_name,   100, &Node::imuCallBack,   this));
+  subscribers_.push_back(n_.subscribe<sensor_msgs::Image>(img_sub_name, 100, &Node::imageCallBack, this));
   return true;
 }
 
@@ -50,32 +65,30 @@ void Node::imageCallBack(const sensor_msgs::Image::ConstPtr& image) {
     cv::Mat img = cv_ptr->image;
     publishers_[img_pub_name].publish(cv_ptr);
 
-    unique_lock<mutex> lock(mutex_);
-    if (msckf_->feedImage(image->header.stamp.toSec(), img)) {
-      // TODO: get camera's pose and feature's pose.
-      MSCKF::FeatureManager mature_features = msckf_->clearLoseFeature();
-      
-      for (auto& id_data : mature_features) 
-        all_mature_features_.insert(id_data);
-
-      for (auto& id_data : msckf_->data_.cameras_) {
-        all_camera_pose_[id_data.first] = id_data.second;
-      }
-
-      all_imu_pose_.push_back(msckf_->data_.imu_status);
-    }
+    msckf_->feedImage(image->header.stamp.toSec(), img);
   } catch(exception e) {
-    LOG(INFO) << e.what();    
+    LOG(INFO) << e.what();
   }
 }
 
 void Node::imuCallBack(const sensor_msgs::Imu::ConstPtr& imu) {
-  // char info[256];
-  // sprintf(info, "receive imu data in %lf s.", imu->header.stamp.toSec());
-  // LOG(INFO) << info;
   Eigen::Vector3f gyro(imu->angular_velocity.x,    imu->angular_velocity.y,    imu->angular_velocity.z);
   Eigen::Vector3f accl(imu->linear_acceleration.x, imu->linear_acceleration.y, imu->linear_acceleration.z);
   msckf_->feedImuData(imu->header.stamp.toSec(), accl, gyro);
+}
+
+void Node::infoCallBack(const MSCKF::ImuStatus& imu_status, const MSCKF::CameraWindow& cam_window, const MSCKF::FeatureManager& features)
+{
+  std::unique_lock<std::mutex> lock(mutex_);
+  for (auto& id_data : features) {
+    all_mature_features_.insert(id_data);
+  }
+
+  for (auto& id_data : cam_window) {
+    all_camera_pose_[id_data.first] = id_data.second;
+  }
+
+  all_imu_pose_.emplace_back(imu_status);
 }
 
 void Node::walltimerCallBack(const ros::WallTimerEvent& event) {
@@ -162,14 +175,12 @@ bool Node::publishImuPath() {
 
   publishers_[imu_pub_path_name].publish(path);
 
-  if (!path.poses.empty()) {
-    Eigen::Quaterniond qwc = msckf_->data_.imu_status.Rwb*msckf_->data_.imu_status.Rbc;
-    Eigen::Vector3d    pwc = msckf_->data_.imu_status.pwb + msckf_->data_.imu_status.Rwb*msckf_->data_.imu_status.pbc;
-    publishRobotPose(qwc, pwc);
-  }
-
   if (!all_imu_pose_.empty()) {
     const MSCKF::ImuStatus& imu_status = all_imu_pose_.back();
+
+    Eigen::Quaterniond qwc = imu_status.Rwb * imu_status.Rbc;
+    Eigen::Vector3d pwc = imu_status.pwb + imu_status.Rwb*imu_status.pbc;
+    publishRobotPose(qwc, pwc);
 
     nav_msgs::Odometry odom;
     odom.header = path.header;

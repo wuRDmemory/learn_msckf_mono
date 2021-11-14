@@ -66,7 +66,7 @@ struct ImuStatus
   std::set<int> observes;
 
   void boxPlus(const Eigen::VectorXd& delta_x);
-  Eigen::VectorXd boxMinus(const ImuStatus& state);
+  Eigen::VectorXd boxMinus(const ImuStatus& state) const;
 
   friend std::ostream& operator<<(std::ostream& os, const ImuStatus& imu);
 };
@@ -84,7 +84,7 @@ struct CameraStatus
   Eigen::Vector3d    pwc_nullspace;
 
   void boxPlus(const Eigen::VectorXd& delta_x);
-  Eigen::VectorXd boxMinus(const CameraStatus& state);
+  Eigen::VectorXd boxMinus(const CameraStatus& state) const;
 
   friend std::ostream& operator<<(std::ostream& os, const CameraStatus& cam);
 };

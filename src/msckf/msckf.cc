@@ -60,10 +60,8 @@ bool Msckf::setup()
     cv::cv2eigen(pbc, eigen_pbc);
     data_.imu_status.Rbc = Eigen::Quaterniond(eigen_Rbc); 
     data_.imu_status.pbc = eigen_pbc;
-    if (param_.verbose) {
-      LOG(INFO) << "[MSCKF] Rbc: " << data_.imu_status.Rbc.toRotationMatrix().eulerAngles(2, 1, 0).transpose()*Deg2Rad;
-      LOG(INFO) << "[MSCKF] pbc: " << data_.imu_status.pbc.transpose();
-    }
+    LOG(INFO) << "[MSCKF] Rbc: " << data_.imu_status.Rbc.toRotationMatrix().eulerAngles(2, 1, 0).transpose()*Deg2Rad;
+    LOG(INFO) << "[MSCKF] pbc: " << data_.imu_status.pbc.transpose();
   }
 
   // set covariance
@@ -147,7 +145,8 @@ void Msckf::imageProcess()
   LOG(INFO) << "[MSCKF] Image process begin...";
   while (!is_stop_) {
     if (cam_buffer_.empty()) {
-      this_thread::sleep_for(1ms);
+      chrono::milliseconds dura(10);
+      this_thread::sleep_for(dura);
       continue;
     }
 
@@ -163,7 +162,6 @@ void Msckf::imageProcess()
         std::unique_lock<std::mutex> lock(mutex_);
         feedTrackResult(image_tracker_->fetchResult());
       }
-      this_thread::sleep_for(1ms);
     }
   }
 
@@ -286,10 +284,14 @@ bool Msckf::feedTrackResult(const TrackResult& track_result)
   }
 
   data_.imu_status.id++;
+  
+  if (callback_) {
+    callback_(data_.imu_status, data_.cameras_, mature_features_);
+  }
+ 
   return true;
 }
 
-//@ pass test.
 bool Msckf::predictImuStatus(const Eigen::Vector3d& accl_m, const Eigen::Vector3d& gyro_m, double time) {
   ImuStatus& imu_status = data_.imu_status;
 
@@ -432,7 +434,7 @@ bool Msckf::predictCamStatus(const TrackResult& track_result) {
   const int old_col = data_.P_dx.cols();
 
   Eigen::MatrixXd& P = data_.P_dx;
-  Eigen::MatrixXd J_cam_imu = Eigen::MatrixXd::Zero(6, IMU_STATUS_NUM*3);
+  Eigen::MatrixXd J_cam_imu = Eigen::MatrixXd::Zero(6, IMU_STATUS_DIM);
   J_cam_imu.block<3, 3>(C_R, J_R) = imu_status.Rbc.toRotationMatrix().transpose();
   J_cam_imu.block<3, 3>(C_P, J_R) = -imu_status.Rwb.toRotationMatrix()*MATH_UTILS::skewMatrix(imu_status.pbc);
   J_cam_imu.block<3, 3>(C_P, J_P) = Eigen::Matrix3d::Identity();
@@ -453,10 +455,6 @@ bool Msckf::predictCamStatus(const TrackResult& track_result) {
 }
 
 bool Msckf::featureUpdateStatus() {
-  ImuStatus&    imu_status = data_.imu_status;
-  CameraWindow& cam_window = data_.cameras_;
-  FeatureManager& ftr_manager = data_.features_;
-  
   // A. find point which is losed
   std::vector<int> invalid_feature_id;
   std::vector<int> lose_feature_id;
@@ -464,7 +462,7 @@ bool Msckf::featureUpdateStatus() {
     const int id = id_ftr.first;
     Feature& ftr = id_ftr.second;
 
-    if (imu_status.observes.count(id)) {
+    if (data_.imu_status.observes.count(id)) {
       continue;
     }
 
@@ -495,57 +493,24 @@ bool Msckf::featureUpdateStatus() {
   }
 
   // B. use lose features to update all status.
-  const int M = 3*IMU_STATUS_NUM;
-  const int N = lose_feature_id.size(); 
-  
   int jacobian_rows = 0;
-  for (int i = 0; i < N; ++i) {
-    const Feature& ftr = data_.features_[lose_feature_id[i]];
+  for (size_t i = 0; i < lose_feature_id.size(); ++i) {
+    const Feature& ftr = data_.features_.at(lose_feature_id[i]);
     jacobian_rows += ftr.observes.size()*2 - 3;
   }
 
-  const int jacobian_cols = data_.cameras_.size()*6 + 3*IMU_STATUS_NUM;
-
-  Eigen::MatrixXd H = Eigen::MatrixXd::Zero(jacobian_rows, jacobian_cols);
-  Eigen::VectorXd e = Eigen::VectorXd::Zero(jacobian_rows);
-
-  int  rows = 0, arows = 0;  
-  for (int j = 0; j < N; ++j) {
-    const Feature& ftr = data_.features_.at(lose_feature_id[j]);    
-    Eigen::MatrixXd H_fj;
-    Eigen::VectorXd e_fj;
-
-    std::set<int> constraint_cam_id;
-    for (const auto& id_data : ftr.observes) {
-      constraint_cam_id.insert(id_data.first);
+  if (!measurementUpdateIKF(lose_feature_id, jacobian_rows, "LOSE")) {
+    if (param_.verbose) {
+      LOG(WARNING) << "[LOSE] IKF update error!!!";
     }
-
-    featureJacobian(ftr, data_.cameras_, constraint_cam_id, H_fj, e_fj);
-    arows += H_fj.rows();
-
-    if (gatingTest(H_fj, e_fj, constraint_cam_id.size())) {
-      H.block(rows, 0, H_fj.rows(), H_fj.cols()) = H_fj;
-      e.segment(rows, e_fj.rows()) = e_fj;
-      rows += H_fj.rows();
-    }
-  }
-  
-  CHECK_EQ(arows, jacobian_rows);
-  CHECK_LE(rows,  jacobian_rows);
-
-  if (rows == 0) {
     return false;
   }
 
-  H.conservativeResize(rows, jacobian_cols);
-  e.conservativeResize(rows);
-
-  // C. ESCKF update. 
-  measurementUpdateStatus(H, e);
-
   // D. remove invalid and lose feature.
   for (int ftr_id : lose_feature_id) {
-    data_.features_[ftr_id].status = FeatureStatus::WaitForDelete;
+    mature_features_[ftr_id] = data_.features_[ftr_id];
+    data_.features_[ftr_id].status = FeatureStatus::Deleted;
+    data_.features_.erase(ftr_id);
   }
 
   for (int ftr_id : invalid_feature_id) {
@@ -557,13 +522,12 @@ bool Msckf::featureUpdateStatus() {
 }
 
 bool Msckf::pruneCameraStatus() {
-  CameraWindow& cameras = data_.cameras_;
-  if (cameras.size() < param_.sliding_window_lens) {
+  if (data_.cameras_.size() < param_.sliding_window_lens) {
     return false;
   } 
 
   std::vector<int> remove_cam_id;
-  findRedundanceCam(cameras, remove_cam_id);
+  findRedundanceCam(data_.cameras_, remove_cam_id);
   CHECK_EQ(remove_cam_id.size(), 2);
 
   int common_vis_cnt = 0;
@@ -593,14 +557,14 @@ bool Msckf::pruneCameraStatus() {
 
     common_vis_cnt++;
     if (ftr.status == FeatureStatus::NotInit) {
-      if (!sfm_ptr_->checkMotion(ftr, cameras)) {
+      if (!sfm_ptr_->checkMotion(ftr, data_.cameras_)) {
         for (int cam_id : constraint_cam_id) {
           observe.erase(cam_id);
         }
         motion_invalid_cnt++;
         continue;
       }
-      else if (!sfm_ptr_->initialFeature(ftr, cameras)) {
+      else if (!sfm_ptr_->initialFeature(ftr, data_.cameras_)) {
         for (int cam_id : constraint_cam_id) {
           observe.erase(cam_id);
         }
@@ -639,7 +603,7 @@ bool Msckf::pruneCameraStatus() {
       valid_ftr_id.emplace_back(ftr_id);
     }
 
-    measurementUpdateIKF(valid_ftr_id, jacobian_rows);
+    measurementUpdateIKF(valid_ftr_id, jacobian_rows, "PRUNE");
     
     // remove cam in observe
     for (int id : valid_ftr_id) {
@@ -651,7 +615,7 @@ bool Msckf::pruneCameraStatus() {
   
   Eigen::MatrixXd& P = data_.P_dx;
   for (const int cam_id : remove_cam_id) {
-    int cam_sequence     = std::distance(cameras.begin(), cameras.find(cam_id));
+    int cam_sequence     = std::distance(data_.cameras_.begin(), data_.cameras_.find(cam_id));
     int cam_status_start = IMU_STATUS_DIM + 6*cam_sequence;
     int cam_status_end   = cam_status_start + 6;
 
@@ -667,25 +631,22 @@ bool Msckf::pruneCameraStatus() {
       P.conservativeResize(old_rows - 6, old_cols - 6);
     }
 
-    cameras.erase(cam_id);
+    data_.cameras_.erase(cam_id);
   }
 
   return true;
 }
 
-bool Msckf::buildProblemWithFeature(const std::vector<int>& ftr_id, int measure_dim, Eigen::MatrixXd& H, Eigen::VectorXd &e)
+bool Msckf::buildProblemWithFeature(const std::vector<int>& ftr_id, Eigen::MatrixXd& H, Eigen::VectorXd &e)
 {
   if (ftr_id.empty()) {
     return false;
   }
 
-  const auto& cam_window = data_.cameras_;
-  const auto& features = data_.features_;
-
   int arows = 0;
   int rows = 0;
   for (int id : ftr_id) {
-    const Feature& ftr = features.at(id);
+    const Feature& ftr = data_.features_.at(id);
     const auto& observe = ftr.observes;
 
     std::set<int> constraint_cam_id;
@@ -695,7 +656,7 @@ bool Msckf::buildProblemWithFeature(const std::vector<int>& ftr_id, int measure_
 
     Eigen::MatrixXd H_fj;
     Eigen::VectorXd e_fj;
-    featureJacobian(ftr, cam_window, constraint_cam_id, H_fj, e_fj);
+    featureJacobian(ftr, data_.cameras_, constraint_cam_id, H_fj, e_fj);
 
     arows += H_fj.rows();
     if (gatingTest(H_fj, e_fj, constraint_cam_id.size())) {
@@ -709,74 +670,67 @@ bool Msckf::buildProblemWithFeature(const std::vector<int>& ftr_id, int measure_
     return false;
   }
 
-  H.conservativeResize(rows,  cam_window.size()*6 + IMU_STATUS_DIM);
+  H.conservativeResize(rows, data_.cameras_.size()*6 + IMU_STATUS_DIM);
   e.conservativeResize(rows);
 
   return true;
 }
 
-bool Msckf::measurementUpdateIKF(const std::vector<int>& ftr_id, int measure_dim)
+bool Msckf::measurementUpdateIKF(const std::vector<int>& ftr_id, int measure_dim, std::string stage)
 {
   if (ftr_id.empty()) {
     return false;
   }
 
-  auto& cam_window = data_.cameras_;
-  auto& features = data_.features_;
+  const ImuStatus    imu_prop = data_.imu_status;
+  const CameraWindow cam_prop = data_.cameras_;
 
-  Eigen::VectorXd delta_x = Eigen::VectorXd::Zero(cam_window.size()*6 + IMU_STATUS_DIM);
+  const int N = data_.cameras_.size()*6 + IMU_STATUS_DIM;
+  Eigen::VectorXd delta_x = Eigen::VectorXd::Zero(N);
   Eigen::MatrixXd P = data_.P_dx;
-  Eigen::MatrixXd inv_P = P.inverse(); // M * M
-  Eigen::MatrixXd new_P = P;
   
   int iter = 0;
   bool converage = false;
   double init_loss = -1;
   double last_loss = -1;
-  for (iter = 1; iter <= 5; ++iter) {
-    Eigen::MatrixXd H = Eigen::MatrixXd::Zero(measure_dim, cam_window.size()*6 + IMU_STATUS_DIM);
+  for (iter = 1; iter <= param_.ikf_iters; ++iter) {
+    Eigen::MatrixXd H = Eigen::MatrixXd::Zero(measure_dim, N);
     Eigen::VectorXd e = Eigen::VectorXd::Zero(measure_dim);
-    if (!buildProblemWithFeature(ftr_id, measure_dim, H, e)) {
+    if (!buildProblemWithFeature(ftr_id, H, e)) {
       LOG(WARNING) << "[IKF] Can not get H and e, init measure dim: " << measure_dim;
       return false;
     }
-
-    // this is ok
-    // measurementUpdateStatus(H, e);
 
     last_loss = e.norm();
     if (init_loss < 0) {
       init_loss = last_loss;
     }
 
-    // IKF
-    Eigen::MatrixXd K;
-    if (H.rows() > H.cols()) {
-      Eigen::MatrixXd R = Eigen::MatrixXd::Identity(H.rows(), H.rows())*param_.noise_observation;
-      Eigen::MatrixXd HTRH = H.transpose() * R * H; // M * M
-      Eigen::MatrixXd S = HTRH + inv_P; // M * M
-      K = S.ldlt().solve(H.transpose() * R); // M * N
-    }
-    else {
-      Eigen::MatrixXd R = Eigen::MatrixXd::Identity(H.rows(), H.rows())*param_.noise_observation;
-      Eigen::MatrixXd S = H*P*H.transpose() + R;
-      K = (S.ldlt().solve(H*P)).transpose(); // M * N
-    }
-
-    Eigen::VectorXd iter_delta_x = K*(e - H*delta_x) + delta_x;
-    delta_x += iter_delta_x;
-    new_P = (Eigen::MatrixXd::Identity(K.rows(), H.cols()) - K*H)*P;
-
+    Eigen::MatrixXd K = kalmanGain(P, H, e);
+    Eigen::VectorXd iter_delta_x = K*(e + H * delta_x) - delta_x;
     updateStates(iter_delta_x);
-    
+
     converage = iter_delta_x.maxCoeff() < 0.001;
-    // if (converage) {
+    if (converage || iter == param_.ikf_iters) {
+      Eigen::MatrixXd new_P = (Eigen::MatrixXd::Identity(K.rows(), H.cols()) - K*H)*data_.P_dx;
+      data_.P_dx = (new_P + new_P.transpose()) / 2.0;
       break;
-    // }
+    }
+
+    // build delta_x
+    delta_x.head<IMU_STATUS_DIM>() = data_.imu_status.boxMinus(imu_prop);
+    int rows = 0;
+    for (const auto& id_data : data_.cameras_) {
+      const int id = id_data.first;
+      const CameraStatus& cam = id_data.second;
+      delta_x.segment<6>(IMU_STATUS_DIM + rows) = cam.boxMinus(cam_prop.at(id));
+      rows += 6;
+    }
   }
 
-  data_.P_dx = (new_P + new_P.transpose())/2.0;
-  LOG(INFO) << "[IKF] Iterator times : " << iter << ", coverage: " << (converage ? "True" : "False") << ", Loss from " << init_loss << " -> " << last_loss;
+  if (param_.verbose) {
+    LOG(INFO) << "[" << stage << "-IKF] Iterator times : " << iter << ", coverage: " << (converage ? "True" : "False") << ", Loss from " << init_loss << " -> " << last_loss;
+  }
 
   return true;
 }
@@ -893,19 +847,52 @@ bool Msckf::findRedundanceCam(CameraWindow& cameras, vector<int>& remove_cam_id)
   return true;
 }
 
-bool Msckf::measurementUpdateStatus(const Eigen::MatrixXd& H, const Eigen::VectorXd& e) {
+bool Msckf::measurementUpdateStatus(Eigen::MatrixXd& H, Eigen::VectorXd& e)
+{
+  Eigen::MatrixXd K = kalmanGain(data_.P_dx, H, e);
+  Eigen::VectorXd delta_x = K*e;
+  Eigen::MatrixXd I_KF  = Eigen::MatrixXd::Identity(K.rows(), H.cols()) - K*H;
+  Eigen::MatrixXd new_P = I_KF*data_.P_dx;
+  data_.P_dx = (new_P + new_P.transpose()) / 2.0;
 
-  Eigen::VectorXd  delta_x = Eigen::VectorXd::Zero(H.cols());
-  Eigen::MatrixXd& P = data_.P_dx;
-
-#if 0
-  Eigen::MatrixXd F_H;
-  Eigen::VectorXd F_e;
+  const Eigen::VectorXd& delta_imu = delta_x.head(3*IMU_STATUS_NUM);
+  if (   delta_imu.segment<3>(J_V).norm() > 0.5 
+      || delta_imu.segment<3>(J_P).norm() > 1.0) {
+    LOG(WARNING) << "[MeasureUpdate] Velocity update: " << delta_imu.segment<3>(J_V).transpose() << ". norm: " << delta_imu.segment<3>(J_V).norm();
+    LOG(WARNING) << "[MeasureUpdate] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
+    LOG(WARNING) << "[MeasureUpdate] Update delta is too large.";
+  }
   
-  // Eigen::MatrixXd  K;
+  data_.imu_status.boxPlus(delta_imu);
+
+  int rows = 0;
+  for (auto& id_data : data_.cameras_) {
+    CameraStatus& cam_status = id_data.second;
+    const Eigen::VectorXd& delta_cam = delta_x.segment<6>(3*IMU_STATUS_NUM + rows);
+    cam_status.boxPlus(delta_cam);
+    rows += 6;
+  }
+
+  return true;
+}
+
+bool Msckf::gatingTest(const Eigen::MatrixXd& H, const Eigen::VectorXd& r, const int v) {
+  Eigen::MatrixXd P1 = H*data_.P_dx*H.transpose();
+  Eigen::MatrixXd P2 = param_.noise_observation*Eigen::MatrixXd::Identity(H.rows(), H.rows());
+  double gamma = r.transpose() * (P1+P2).ldlt().solve(r);
+
+  if (gamma < chi_square_distribution_[v]) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+Eigen::MatrixXd Msckf::kalmanGain(const Eigen::MatrixXd& P, Eigen::MatrixXd& H, Eigen::VectorXd& e)
+{
+#if 1
   if (H.rows() > H.cols()) {
     Eigen::SparseMatrix<double> H_sparse = H.sparseView();
-
     Eigen::SPQR<Eigen::SparseMatrix<double>> spqr_solver;
     spqr_solver.setSPQROrdering(SPQR_ORDERING_NATURAL);
     spqr_solver.compute(H_sparse);
@@ -915,28 +902,12 @@ bool Msckf::measurementUpdateStatus(const Eigen::MatrixXd& H, const Eigen::Vecto
     (spqr_solver.matrixQ().transpose()*H).evalTo(H_dense);
     (spqr_solver.matrixQ().transpose()*e).evalTo(e_dense);
 
-    F_H = H_dense.topRows(H.cols());
-    F_e = e_dense.head(H.cols());
-  }
-  else {
-    F_H = H;
-    F_e = e;
+    H = H_dense.topRows(H.cols());
+    e = e_dense.head(H.cols());
   }
 
-  Eigen::MatrixXd  S = F_H*P*F_H.transpose() + Eigen::MatrixXd::Identity(F_H.rows(), F_H.rows())*param_.noise_observation;
-  Eigen::MatrixXd  K = (S.ldlt().solve(F_H*P)).transpose();
-  { // IEKF
-    bool coverged = false;
-    for (int i = 0; i < 1 && !coverged; ++i) {
-      Eigen::VectorXd iter_delta_x = K*(F_e - F_H*delta_x);
-      coverged = iter_delta_x.norm() < 1.e-7;
-      delta_x += iter_delta_x;
-    }
-  }
-  Eigen::MatrixXd I_KF  = Eigen::MatrixXd::Identity(K.rows(), F_H.cols()) - K*F_H;
-  Eigen::MatrixXd new_P = I_KF*P;
-
-  P = (new_P + new_P.transpose())/2.0;
+  Eigen::MatrixXd S = H*P*H.transpose() + Eigen::MatrixXd::Identity(H.rows(), H.rows())*param_.noise_observation;
+  return (S.ldlt().solve(H*P)).transpose();
 #else
   Eigen::MatrixXd K;
   if (H.rows() > H.cols()) {
@@ -954,87 +925,32 @@ bool Msckf::measurementUpdateStatus(const Eigen::MatrixXd& H, const Eigen::Vecto
     Eigen::MatrixXd S = H*P*H.transpose() + R;
     K = (S.ldlt().solve(H*P)).transpose(); // M * N
   }
-
-  Eigen::VectorXd iter_delta_x = K*(e - H*delta_x);
-  delta_x += iter_delta_x;
-  Eigen::MatrixXd I_KF  = Eigen::MatrixXd::Identity(K.rows(), H.cols()) - K*H;
-  Eigen::MatrixXd new_P = I_KF*P;
-
-  P = (new_P + new_P.transpose())/2.0;
+  return K;
 #endif
-
-  const Eigen::VectorXd& delta_imu = delta_x.head(3*IMU_STATUS_NUM);
-  if (   delta_imu.segment<3>(J_V).norm() > 0.5 
-      || delta_imu.segment<3>(J_P).norm() > 1.0) {
-    LOG(WARNING) << "[MeasureUpdate] Velocity update: " << delta_imu.segment<3>(J_V).transpose() << ". norm: " << delta_imu.segment<3>(J_V).norm();
-    LOG(WARNING) << "[MeasureUpdate] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
-    LOG(WARNING) << "[MeasureUpdate] Update delta is too large.";
-  }
-  
-  data_.imu_status.boxPlus(delta_imu);
-  // ImuStatus& imu_status = data_.imu_status;
-  // imu_status.Rwb *= MATH_UTILS::rotateVecToQuaternion<double>(delta_imu.segment<3>(J_R)); imu_status.Rwb.normalize();
-  // imu_status.vwb += delta_imu.segment<3>(J_V);
-  // imu_status.pwb += delta_imu.segment<3>(J_P);
-  // imu_status.bg  += delta_imu.segment<3>(J_BG);
-  // imu_status.ba  += delta_imu.segment<3>(J_BA);
-
-  int rows = 0;
-  for (auto& id_data : data_.cameras_) {
-    CameraStatus& cam_status = id_data.second;
-    const Eigen::VectorXd& delta_cam = delta_x.segment<6>(3*IMU_STATUS_NUM + rows);
-    cam_status.Rwc *= MATH_UTILS::rotateVecToQuaternion<double>(delta_cam.head<3>()); cam_status.Rwc.normalize();
-    cam_status.pwc += delta_cam.tail<3>();
-    rows += 6;
-  }
-
-  return true;
-}
-
-bool Msckf::gatingTest(const Eigen::MatrixXd& H, const Eigen::VectorXd& r, const int v) {
-  Eigen::MatrixXd P1 = H*data_.P_dx*H.transpose();
-  Eigen::MatrixXd P2 = param_.noise_observation*Eigen::MatrixXd::Identity(H.rows(), H.rows());
-  double gamma = r.transpose() * (P1+P2).ldlt().solve(r);
-
-  //cout << dof << " " << gamma << " " <<
-  //  chi_squared_test_table[dof] << " ";
-
-  if (gamma < chi_square_distribution_[v]) {
-    return true;
-  } else {
-    return false;
-  }
 }
 
 bool Msckf::updateStates(const Eigen::VectorXd& delta_x)
 {
-  // if (delta_x.rows() < IMU_STATUS_DIM) {
-  //   LOG(INFO) << "alili: " << delta_x.rows();
-  //   return false;
-  // }
-
-  // update state
-  const Eigen::VectorXd& delta_imu = delta_x.head(IMU_STATUS_NUM*3);
-  if (   delta_imu.segment<3>(J_V).norm() > 0.5 
-      || delta_imu.segment<3>(J_P).norm() > 1.0) {
-    LOG(WARNING) << "[IKF] Velocity update: " << delta_imu.segment<3>(J_V).transpose() << ". norm: " << delta_imu.segment<3>(J_V).norm();
-    LOG(WARNING) << "[IKF] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
-    LOG(WARNING) << "[IKF] Update delta is too large.";
+  if (delta_x.rows() < IMU_STATUS_DIM) {
+    LOG(ERROR) << "[MSCKF]: Update delta dimension is wrong, " << delta_x.rows();
+    return false;
   }
 
-  ImuStatus& imu_status = data_.imu_status;
-  imu_status.Rwb *= MATH_UTILS::rotateVecToQuaternion<double>(delta_imu.segment<3>(J_R)); imu_status.Rwb.normalize();
-  imu_status.vwb += delta_imu.segment<3>(J_V);
-  imu_status.pwb += delta_imu.segment<3>(J_P);
-  imu_status.bg  += delta_imu.segment<3>(J_BG);
-  imu_status.ba  += delta_imu.segment<3>(J_BA);
+  // update state
+  const Eigen::VectorXd& delta_imu = delta_x.head(IMU_STATUS_DIM);
+  if (   delta_imu.segment<3>(J_V).norm() > 0.5 
+      || delta_imu.segment<3>(J_P).norm() > 1.0) {
+    LOG(WARNING) << "[MSCKF] Velocity update: " << delta_imu.segment<3>(J_V).transpose() << ". norm: " << delta_imu.segment<3>(J_V).norm();
+    LOG(WARNING) << "[MSCKF] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
+    LOG(WARNING) << "[MSCKF] Update delta is too large.";
+  }
+
+  data_.imu_status.boxPlus(delta_imu);
 
   int rows = 0;
   for (auto& id_data : data_.cameras_) {
-    CameraStatus& cam_status = id_data.second;
-    const Eigen::VectorXd& delta_cam = delta_x.segment<6>(3*IMU_STATUS_NUM + rows);
-    cam_status.Rwc *= MATH_UTILS::rotateVecToQuaternion<double>(delta_cam.head<3>()); cam_status.Rwc.normalize();
-    cam_status.pwc += delta_cam.tail<3>();
+    const Eigen::VectorXd& delta_cam = delta_x.segment<6>(IMU_STATUS_DIM + rows);
+    id_data.second.boxPlus(delta_cam);
     rows += 6;
   }
 

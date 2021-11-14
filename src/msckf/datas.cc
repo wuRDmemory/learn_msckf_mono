@@ -35,12 +35,12 @@ void ImuStatus::boxPlus(const Eigen::VectorXd& delta_imu)
   ba  += delta_imu.segment<3>(J_BA);
 }
 
-Eigen::VectorXd ImuStatus::boxMinus(const ImuStatus& state)
+Eigen::VectorXd ImuStatus::boxMinus(const ImuStatus& state) const
 {
   Eigen::VectorXd dx = Eigen::VectorXd::Zero(IMU_STATUS_DIM);
   dx.segment<3>(J_R) = MATH_UTILS::quaternionToRotateVector<double>(state.Rwb.inverse()*Rwb);
-  dx.segment<3>(J_P) = state.Rwb.inverse()*(pwb - state.pwb);
-  dx.segment<3>(J_V) = state.Rwb.inverse()*(vwb - state.vwb);
+  dx.segment<3>(J_P) = pwb - state.pwb;
+  dx.segment<3>(J_V) = vwb - state.vwb;
   dx.segment<3>(J_BA) = ba - state.ba;
   dx.segment<3>(J_BG) = bg - state.bg;
   return dx;
@@ -52,11 +52,11 @@ void CameraStatus::boxPlus(const Eigen::VectorXd& delta_cam)
   pwc += delta_cam.segment<3>(C_P);
 }
 
-Eigen::VectorXd CameraStatus::boxMinus(const CameraStatus& state)
+Eigen::VectorXd CameraStatus::boxMinus(const CameraStatus& state) const
 {
   Eigen::VectorXd dx = Eigen::VectorXd::Zero(6);
   dx.segment<3>(C_R) = MATH_UTILS::quaternionToRotateVector<double>(state.Rwc.inverse()*Rwc);
-  dx.segment<3>(C_P) = state.Rwc.inverse()*(pwc - state.pwc);
+  dx.segment<3>(C_P) = pwc - state.pwc;
   return dx;
 }
 

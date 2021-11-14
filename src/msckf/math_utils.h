@@ -31,7 +31,7 @@ Eigen::Matrix<T, 3, 1> quaternionToRotateVector(const Eigen::Quaternion<T>& q)
   }
   T theta = 2.0*acos(q_n.w());
   T sin_half_theta = std::sqrt(1.0 - q_n.w() * q_n.w());
-  Eigen::Matrix<T, 3, 1> vec = q_n.vec() / sin_half_theta;
+  Eigen::Matrix<T, 3, 1> vec = q_n.vec() / (sin_half_theta + 1.0e-7);
 
   return vec * theta;
 }

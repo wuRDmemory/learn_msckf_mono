@@ -27,8 +27,8 @@ Tbc: !!opencv-matrix
 track:
   verbose: 0
   fm_threshold: 1.0
-  max_cornor_num: 200
-  min_cornor_gap: 30
+  max_cornor_num: 300
+  min_cornor_gap: 15
   track_frequency: 10 
 
 initial:
@@ -45,9 +45,11 @@ msckf:
   noise_gyro_bias: 0.000001
   noise_observation: 0.0001225
 
+  ikf_iters: 10
   sliding_window_lens: 20
   distance_threshold: 0.5
   angle_threshold: 15 # in deg
+  track_threshold: 0.5
 
 sfm:
   verbose: 0

@@ -65,6 +65,7 @@ set(ALL_LIBS
   ${BOOST_LIBRARIES}
   ${SUITESPARSE_LIBRARIES}
   ${ABSL_LIBS}
+  ${OpenCV_LIBS}
   glog
   gflags
   pthread

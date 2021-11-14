@@ -45,7 +45,7 @@ private:
   ros::WallTimer                          wall_timer_;
 
   mutex mutex_;
-  unique_ptr<MSCKF::Msckf> msckf_ GUARDED_BY(mutex_);
+  unique_ptr<MSCKF::Msckf> msckf_;
   MSCKF::FeatureManager    all_mature_features_ GUARDED_BY(mutex_);
   MSCKF::CameraWindow      all_camera_pose_     GUARDED_BY(mutex_);
   vector<MSCKF::ImuStatus> all_imu_pose_        GUARDED_BY(mutex_);
@@ -55,6 +55,8 @@ public:
   ~Node();
 
 private:
+  void infoCallBack(const MSCKF::ImuStatus& imu_status, const MSCKF::CameraWindow& cam_window, const MSCKF::FeatureManager& features);
+
   void imuCallBack(const sensor_msgs::Imu::ConstPtr& imu);
   
   void imageCallBack(const sensor_msgs::Image::ConstPtr& image);

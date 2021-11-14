@@ -29,6 +29,7 @@ MsckfParam Config::msckf_param = {
   .noise_accl_bias = 0.1,
   .noise_gyro_bias = 0.1,
   .noise_observation = 0.1,
+  .ikf_iters = 10,
   .sliding_window_lens = 10,
   .angle_threshold = 15, // in degree
   .distance_threshold = 0.5, // in meter
@@ -142,18 +143,22 @@ void Config::readConfig(string config_file_path)
     msckf_param.noise_gyro_bias = (double)n["noise_gyro_bias"];
     msckf_param.noise_observation = (double)n["noise_observation"];
 
+    msckf_param.ikf_iters = (int)n["ikf_iters"];
     msckf_param.sliding_window_lens = (int)n["sliding_window_lens"];
     msckf_param.distance_threshold  = (double)n["distance_threshold"];
     msckf_param.angle_threshold     = (double)n["angle_threshold"]*M_PI/180.0;
+    msckf_param.track_rate_threshold = (double)n["track_rate_threshold"];
 
     LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf imu noise accl : \t" << msckf_param.noise_accl; 
     LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf imu noise gyro : \t" << msckf_param.noise_gyro;
     LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf imu noise accl bias : \t" << msckf_param.noise_accl_bias; 
     LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf imu noise gyro bias : \t" << msckf_param.noise_gyro_bias;
     LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf observation noise   : \t" << msckf_param.noise_observation;
+    LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf ikf iterates        : \t" << msckf_param.ikf_iters;
     LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf sliding window lens : \t" << msckf_param.sliding_window_lens;
     LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf distance threshold  : \t" << msckf_param.distance_threshold;
     LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf angular  threshold  : \t" << msckf_param.angle_threshold*180.0/M_PI;
+    LOG(INFO) << std::fixed << std::setprecision(6) << "[CONFIG] Msckf track rate threshold  : \t" << msckf_param.track_rate_threshold;
   }
  
   { //* read SFM feature configuration
