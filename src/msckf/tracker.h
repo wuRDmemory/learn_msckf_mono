@@ -6,6 +6,8 @@
 
 #include "msckf/utils.h"
 #include "msckf/datas.h"
+#include "opencv2/line_descriptor.hpp"
+#include "opencv2/features2d.hpp"
 #include "camera/camera_factory.h"
 
 using namespace std;
@@ -15,6 +17,7 @@ namespace MSCKF {
 class ImageTracker {
 private:
   static int ID;
+  static int LID;
   double  prev_pub_ts_ = -1;
   double  last_ts_ = -1;
 
@@ -37,6 +40,7 @@ public:
   ImageTracker(TrackParam &param, CameraParam &camera_param);
   ~ImageTracker();
   bool feedImage(const double& time, const cv::Mat& curr_image);
+  bool feedImageLine(const double& time, const cv::Mat& curr_image);
   TrackResult fetchResult();
 
 private:
@@ -44,6 +48,8 @@ private:
   std::vector<uchar> checkWithFundamental();
   cv::Mat setMask();
   cv::Point2f computeVelocity(bool show_match = false);
+  int extractLineFeature(const cv::Mat& image, const cv::Mat& mask, std::vector<cv::line_descriptor::KeyLine>& lines, cv::Mat& descrips);
+  int matchLineFeature(const cv::Mat& ref_descrip, const cv::Mat& dst_descrip, std::vector<cv::DMatch>& matches);
 
 private:
   void testUndistortPoint();

@@ -15,9 +15,9 @@ namespace MATH_UTILS {
 template<typename T>
 Eigen::Matrix<T, 3, 3> skewMatrix(const Eigen::Matrix<T, 3, 1>& vec) {
   Eigen::Matrix<T, 3, 3> skew;
-  skew << 0, -vec(2), vec(1), 
-          vec(2), 0, -vec(0),
-          -vec(1), vec(0), 0;
+  skew << T(0), -vec(2), vec(1), 
+          vec(2), T(0), -vec(0),
+          -vec(1), vec(0), T(0);
 
   return skew;
 }

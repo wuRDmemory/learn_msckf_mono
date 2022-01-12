@@ -27,10 +27,10 @@ Node::~Node() {
   if (!all_imu_pose_.empty()) {
     std::ofstream fp("/tmp/msckf_trajectory.csv");
     if (fp.is_open()) {
-      for (const auto& state : all_imu_pose_) {
-        double ts = state.ts;
-        Eigen::Quaterniond Rwb = state.Rwb;
-        Eigen::Vector3d pwb = state.pwb;
+      for (const auto& state : all_camera_pose_) {
+        double ts = state.second.ts;
+        Eigen::Quaterniond Rwb = state.second.Rwc;
+        Eigen::Vector3d pwb = state.second.pwc;
         fp << std::fixed << std::setprecision(6) 
             << ts << " " << pwb.x() << " " << pwb.y() << " " << pwb.z() << " "
             << Rwb.x() << " " << Rwb.y() << " " << Rwb.z() << " " << Rwb.w() << std::endl;
@@ -186,9 +186,9 @@ bool Node::publishImuPath() {
     odom.header = path.header;
     odom.child_frame_id = "robot";
     odom.pose.pose = path.poses.back().pose;
-    odom.twist.twist.linear.x = imu_status.vwb.x();
-    odom.twist.twist.linear.y = imu_status.vwb.y();
-    odom.twist.twist.linear.z = imu_status.vwb.z();
+    odom.twist.twist.linear.x =  imu_status.g.x();
+    odom.twist.twist.linear.y =  imu_status.g.y();
+    odom.twist.twist.linear.z = -imu_status.g.z();
 
     publishers_[imu_pub_odom_name].publish(odom);
   }

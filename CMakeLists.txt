@@ -41,6 +41,8 @@ find_package(OpenCV REQUIRED)
 find_package(glog REQUIRED)
 find_package(gflags REQUIRED)
 find_package(absl REQUIRED)
+find_package(GTest REQUIRED)
+find_package(Ceres REQUIRED)
 find_package(SuiteSparse REQUIRED)
 set(ABSL_LIBS
   absl::algorithm
@@ -58,6 +60,8 @@ include_directories(
   ${GLOG_INCLUDE_DIR}
   ${GFLAGS_INCLUDE_DIR}
   ${SUITESPARSE_INCLUDE_DIRS}
+  ${GTEST_INCLUDE_DIRS}
+  ${CERES_INCLUDE_DIRS}
 )
 
 set(ALL_LIBS
@@ -66,6 +70,8 @@ set(ALL_LIBS
   ${SUITESPARSE_LIBRARIES}
   ${ABSL_LIBS}
   ${OpenCV_LIBS}
+  ${GTEST_BOTH_LIBRARIES}
+  ${CERES_LIBRARIES}
   glog
   gflags
   pthread
@@ -88,6 +94,7 @@ target_link_libraries(msckf_node ${ALL_LIBS})
 
 # test
 if (BUILD_TEST) 
+  enable_testing()
   set(TEST_DIR ${PROJECT_SOURCE_DIR}/testing)
 
   include_directories(${TEST_DIR})

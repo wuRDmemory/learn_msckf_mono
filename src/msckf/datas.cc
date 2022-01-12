@@ -33,6 +33,12 @@ void ImuStatus::boxPlus(const Eigen::VectorXd& delta_imu)
   pwb += delta_imu.segment<3>(J_P);
   bg  += delta_imu.segment<3>(J_BG);
   ba  += delta_imu.segment<3>(J_BA);
+
+  // gravity update
+  Eigen::MatrixXd bu = S2Bx(); // 3 x 2
+  Eigen::Vector3d vec = bu*delta_imu.segment<2>(J_G);
+  Eigen::Quaterniond q = MATH_UTILS::rotateVecToQuaternion(vec);
+  g = q*g;
 }
 
 Eigen::VectorXd ImuStatus::boxMinus(const ImuStatus& state) const
@@ -43,7 +49,44 @@ Eigen::VectorXd ImuStatus::boxMinus(const ImuStatus& state) const
   dx.segment<3>(J_V) = vwb - state.vwb;
   dx.segment<3>(J_BA) = ba - state.ba;
   dx.segment<3>(J_BG) = bg - state.bg;
+
+  // gravity minus
+  const Eigen::Vector3d& vec = g;
+  Eigen::Vector2d res;
+  double v_sin = (MATH_UTILS::skewMatrix(vec)*state.g).norm();
+  double v_cos = vec.transpose() * state.g;
+  double theta = std::atan2(v_sin, v_cos);
+  if(v_sin < eps) {
+    if(std::fabs(theta) > eps) {
+      res[0] = 3.1415926;
+      res[1] = 0;
+    } else {
+      res[0] = 0;
+      res[1] = 0;
+    }
+  } else {
+    Eigen::MatrixXd Bx = state.S2Bx();
+    res = theta/v_sin * Bx.transpose() * MATH_UTILS::skewMatrix(state.g)*vec;
+  }
+  dx.segment<2>(J_G) = res;
   return dx;
+}
+
+Eigen::MatrixXd ImuStatus::S2Bx() const
+{
+  const Eigen::Vector3d& vec = g;
+  const double length = vec.norm();
+  Eigen::MatrixXd res = Eigen::MatrixXd::Zero(3, 2);
+  if(vec[2] + length > 1.e-7) { 
+    res << length - vec[0]*vec[0]/(length+vec[2]), -vec[0]*vec[1]/(length+vec[2]),
+        -vec[0]*vec[1]/(length+vec[2]), length-vec[1]*vec[1]/(length+vec[2]),
+        -vec[0], -vec[1];
+    res /= length;
+  } else {
+    res(1, 1) = -1;
+    res(2, 0) = 1;
+  }
+  return res;
 }
 
 void CameraStatus::boxPlus(const Eigen::VectorXd& delta_cam)

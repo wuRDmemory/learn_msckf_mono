@@ -70,7 +70,7 @@ bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image)
   const double delta_time = time - prev_pub_ts_;
   const bool   publish    = (delta_time >= param_.track_frequency);
 
-  // track process
+  // track point process
   vector<cv::Point2f> curr_points;
   if (!last_points_.empty()) {
     std::vector<uchar> status;
@@ -158,7 +158,50 @@ bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image)
   return publish;
 }
 
-TrackResult ImageTracker::fetchResult() {
+int ImageTracker::extractLineFeature(const cv::Mat& image, const cv::Mat& mask, std::vector<cv::line_descriptor::KeyLine>& lines, cv::Mat& descrips)
+{
+  cv::Ptr<cv::line_descriptor::BinaryDescriptor> lbd = cv::line_descriptor::BinaryDescriptor::createBinaryDescriptor();
+  cv::Ptr<cv::line_descriptor::LSDDetector>      lsd = cv::line_descriptor::LSDDetector::createLSDDetector();
+
+  lsd->detect(image, lines, 1.2, 1);
+  std::vector<uchar> status(lines.size(), 1);
+  for (size_t i = 0; i < lines.size(); ++i) {
+    const cv::line_descriptor::KeyLine& line = lines[i];
+    cv::Point2f start_pt = line.getStartPoint();
+    cv::Point2f end_pt = line.getEndPoint();
+    if (cv::norm(end_pt - start_pt) < 5) {
+      status[i] = 0;
+    }
+  }
+
+  reduceVector<cv::line_descriptor::KeyLine>(lines, status);
+  lbd->compute(image, lines, descrips);
+
+  return static_cast<int>(lines.size());
+}
+
+int ImageTracker::matchLineFeature(const cv::Mat& ref_descrip, const cv::Mat& dst_descrip, std::vector<cv::DMatch>& matches)
+{
+  std::vector<std::vector<cv::DMatch>> lmatches;
+  cv::BFMatcher* bfm = new cv::BFMatcher(cv::NORM_HAMMING, false);
+  bfm->knnMatch(ref_descrip, dst_descrip, lmatches, 2);
+
+  for(size_t i = 0; i < lmatches.size(); ++i) {
+    const cv::DMatch& bestMatch   = lmatches[i][0];
+    const cv::DMatch& betterMatch = lmatches[i][1];
+    float distanceRatio = bestMatch.distance / betterMatch.distance;
+    if (distanceRatio < 0.75) {
+      matches.push_back(bestMatch);
+    }
+  }
+
+  return static_cast<int>(matches.size());
+}
+
+
+
+TrackResult ImageTracker::fetchResult()
+{
   return TrackResult{
     last_ts_,
     points_id_, 
@@ -167,7 +210,8 @@ TrackResult ImageTracker::fetchResult() {
   };
 }
 
-vector<uchar> ImageTracker::checkWithFundamental() {
+vector<uchar> ImageTracker::checkWithFundamental()
+{
   CHECK_EQ(last_points_.size(), prev_points_.size());
   
   last_points_un_.resize(last_points_.size());
@@ -246,7 +290,8 @@ cv::Mat ImageTracker::setMask()
   return mask;
 }
 
-cv::Point2f ImageTracker::computeVelocity(bool show_match) {
+cv::Point2f ImageTracker::computeVelocity(bool show_match)
+{
   CHECK_EQ(last_points_.size(),    prev_points_.size());
   CHECK_EQ(last_points_un_.size(), prev_points_un_.size());
 
@@ -280,7 +325,8 @@ cv::Point2f ImageTracker::computeVelocity(bool show_match) {
   return cv::Point2f(move.x/move.z, move.y/move.z);
 }
 
-void ImageTracker::testUndistortPoint() {
+void ImageTracker::testUndistortPoint()
+{
   // test un point is or not correct.(pass)
   cv::Mat new_K;
   cv::Mat undistort_image = camera_->undistortImage(last_image_, &new_K);
@@ -307,7 +353,8 @@ void ImageTracker::testUndistortPoint() {
   cv::waitKey();
 }
 
-void ImageTracker::testTrackConsistency() {
+void ImageTracker::testTrackConsistency()
+{
   static cv::Mat record_image;
 
   CHECK_EQ(points_id_.size(), track_cnt_.size());

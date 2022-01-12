@@ -10,6 +10,7 @@ using namespace std;
 
 namespace MSCKF {
 
+using LINE_ENDS    = std::pair<Eigen::Vector3d, Eigen::Vector3d>;
 using IMU_Matrix   = Eigen::Matrix<double, IMU_STATUS_DIM, IMU_STATUS_DIM>;
 using Drive_Matrix = Eigen::Matrix<double, IMU_STATUS_DIM, IMU_NOISE_DIM>;
 using Noise_Matrix = Eigen::Matrix<double, IMU_NOISE_DIM,  IMU_NOISE_DIM>;
@@ -42,6 +43,11 @@ struct TrackResult
   vector<int>         point_id;
   vector<cv::Point2f> point_uv;
   vector<cv::Point2f> point_f;
+
+  // line part
+  vector<int>       line_id;
+  vector<LINE_ENDS> line_ends;
+  vector<bool>      tracking;
 };
 
 struct ImuStatus
@@ -55,6 +61,7 @@ struct ImuStatus
   Eigen::Vector3d    vwb;
   Eigen::Vector3d    ba;
   Eigen::Vector3d    pwb;
+  Eigen::Vector3d    g;
 
   Eigen::Quaterniond Rbc;
   Eigen::Vector3d    pbc;
@@ -67,6 +74,7 @@ struct ImuStatus
 
   void boxPlus(const Eigen::VectorXd& delta_x);
   Eigen::VectorXd boxMinus(const ImuStatus& state) const;
+  Eigen::MatrixXd S2Bx() const;
 
   friend std::ostream& operator<<(std::ostream& os, const ImuStatus& imu);
 };
@@ -97,8 +105,19 @@ struct Feature
   FeatureStatus status;
 };
 
+// line part
+struct LineFeature
+{
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  map<int, LINE_ENDS> observes;
+  Eigen::Vector3d direct_vec;
+  Eigen::Vector3d normal_vec;
+  FeatureStatus status;
+};
+
 using CameraWindow   = map<int, CameraStatus>;
 using FeatureManager = map<int, Feature>;
+using LineFeatureManager = map<int, LineFeature>;
 
 struct Data
 {
@@ -108,7 +127,7 @@ struct Data
   CameraWindow   cameras_;
   FeatureManager features_;
 
-  Eigen::Vector3d gravity;
+  // Eigen::Vector3d gravity;
 
   Eigen::MatrixXd P_dx;
   Noise_Matrix    Q_imu;

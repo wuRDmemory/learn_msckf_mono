@@ -54,8 +54,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: -1
-        Min Value: -1
+        Max Value: 0.3782554566860199
+        Min Value: -0.721944272518158
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -166,7 +166,7 @@ Visualization Manager:
           Scale: 1
           Value: true
         Value: true
-      Enabled: false
+      Enabled: true
       Keep: 100
       Name: Odometry
       Position Tolerance: 0.10000000149011612
@@ -183,7 +183,7 @@ Visualization Manager:
         Value: Arrow
       Topic: /imu_odom
       Unreliable: false
-      Value: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
