@@ -137,8 +137,9 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
   ftr.status   = valid_feature ? FeatureStatus::Inited : FeatureStatus::NotInit;
 
   if (param_.verbose) {
-    LOG(INFO) << "init postion: " << init_postion.transpose();
-    LOG(INFO) << "opti postion: " << position.transpose();
+    LOG(INFO) << "[SFM] init depth:   " << depth.transpose();
+    LOG(INFO) << "[SFM] init postion: " << init_postion.transpose();
+    LOG(INFO) << "[SFM] opti postion: " << position.transpose();
     // TODO: report some optimization information like ceres
   }
 
@@ -175,7 +176,7 @@ bool SFM::checkMotion(Feature& ftr, CameraWindow& cams)
 
   // 2. check distance
   Eigen::Vector3d t_c0_c1 = R_w_c0.inverse()*(t_w_c1 - t_w_c0); // project V_c0_c1 in world cooridation to c0's cooridation.
-  Eigen::Vector3d orthogonal_vec = t_c0_c1 - t_c0_c1.dot(f_c0)*f_c0;
+  Eigen::Vector3d orthogonal_vec = t_c0_c1 - t_c0_c1.dot(f_c0)*f_c0; // TODO: check here
   double orthogonal_distance = orthogonal_vec.norm();
   // LOG(INFO) << "cam " << c0_id << "->" << c1_id << " orthogonal distance " << orthogonal_distance;
   return orthogonal_distance >= param_.min_disparity_distance;

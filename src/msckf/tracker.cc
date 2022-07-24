@@ -26,6 +26,7 @@ cv::Point2f projectToImage(const cv::Point3f& pc, const cv::Mat& K) {
 } // namespace anonymous
 
 int ImageTracker::ID = 0;
+int ImageTracker::LID = 0;
 
 ImageTracker::ImageTracker(TrackParam &param, CameraParam &camera_param) :
     param_(param)
@@ -155,7 +156,87 @@ bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image)
     // testTrackConsistency();
   }
 
+  // ----------- line feature part ---------------------
+#if 0
+  if (publish) {
+    // 1. extract line features
+    vector<cv::line_descriptor::KeyLine> lines;
+    cv::Mat desc;
+    extractLineFeature(curr_image, cv::Mat(), lines, desc);
+
+    // 2. match
+    vector<cv::DMatch> match_pairs;
+    matchLineFeature(prev_line_features_desc_, desc, match_pairs);
+
+    // 3. RANSAC to refuse outliers
+    vector<LINE_ENDS> ref_lines;
+    vector<LINE_ENDS> cur_lines;
+    fetchMatchLines(prev_line_features_, lines, match_pairs, ref_lines, cur_lines);
+    outlierCheck(ref_lines, cur_lines);
+
+    // 4. add new line to prev line feature
+
+    // 5. 
+    if (param_.max_line_num - static_cast<int>(prev_line_features_.size()) > 5) {
+      // 1. make line feature mask
+      cv::Mat line_mask = setLineMask();
+
+      // 2. extract line features
+      vector<cv::line_descriptor::KeyLine> lines;
+      cv::Mat desc;
+      extractLineFeature(curr_image, line_mask, lines, desc);
+
+      // 3. sort by line's length, and change to LINE_ENDS
+      sort(lines.begin(), lines.end(), [](const auto& line1, const auto& line2) {
+        return line1.lineLength > line2.lineLength;
+      });
+      
+      
+    }
+
+    // TODO: 4. match line features
+
+    // TODO: 5. add new line features
+
+    // TODO: 6. check track loss
+  }
+  #endif
+
   return publish;
+}
+
+// int ImageTracker::outlierCheck(const std::vector<LINE_ENDS>& ref_lines, std::vector<LINE_ENDS>& cur_lines)
+// {
+//   do {
+
+//   } while ();
+// }
+
+int ImageTracker::fetchMatchLines(
+      vector<cv::line_descriptor::KeyLine>& train_lines, vector<cv::line_descriptor::KeyLine>& query_lines, vector<cv::DMatch>& matches, 
+      vector<LINE_ENDS>& ref_lines, vector<LINE_ENDS>& cur_lines)
+{
+  ref_lines.clear();
+  cur_lines.clear();
+  ref_lines.reserve(matches.size());
+  cur_lines.reserve(matches.size());
+  for (size_t i = 0; i < matches.size(); ++i) {
+    cv::DMatch dmatch = matches[i];
+    cv::line_descriptor::KeyLine train_line = train_lines[dmatch.trainIdx];
+    cv::line_descriptor::KeyLine query_line = query_lines[dmatch.queryIdx];
+    LINE_ENDS line1 = std::make_pair(
+        Eigen::Vector3d{train_line.startPointX, train_line.startPointY, 1.}, 
+        Eigen::Vector3d{train_line.endPointX,   train_line.endPointY,   1.});
+    
+    LINE_ENDS line2 = std::make_pair(
+        Eigen::Vector3d{query_line.startPointX, query_line.startPointY, 1.}, 
+        Eigen::Vector3d{query_line.endPointX,   query_line.endPointY,   1.});
+    
+    ref_lines.emplace_back(line1);
+    cur_lines.emplace_back(line2);
+  }
+
+  return static_cast<int>(matches.size());
 }
 
 int ImageTracker::extractLineFeature(const cv::Mat& image, const cv::Mat& mask, std::vector<cv::line_descriptor::KeyLine>& lines, cv::Mat& descrips)
@@ -163,7 +244,7 @@ int ImageTracker::extractLineFeature(const cv::Mat& image, const cv::Mat& mask, 
   cv::Ptr<cv::line_descriptor::BinaryDescriptor> lbd = cv::line_descriptor::BinaryDescriptor::createBinaryDescriptor();
   cv::Ptr<cv::line_descriptor::LSDDetector>      lsd = cv::line_descriptor::LSDDetector::createLSDDetector();
 
-  lsd->detect(image, lines, 1.2, 1);
+  lsd->detect(image, lines, 1.2, 1, mask);
   std::vector<uchar> status(lines.size(), 1);
   for (size_t i = 0; i < lines.size(); ++i) {
     const cv::line_descriptor::KeyLine& line = lines[i];
@@ -183,14 +264,14 @@ int ImageTracker::extractLineFeature(const cv::Mat& image, const cv::Mat& mask, 
 int ImageTracker::matchLineFeature(const cv::Mat& ref_descrip, const cv::Mat& dst_descrip, std::vector<cv::DMatch>& matches)
 {
   std::vector<std::vector<cv::DMatch>> lmatches;
-  cv::BFMatcher* bfm = new cv::BFMatcher(cv::NORM_HAMMING, false);
-  bfm->knnMatch(ref_descrip, dst_descrip, lmatches, 2);
+  cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create(cv::DescriptorMatcher::FLANNBASED);
+  line_matcher_->knnMatch(ref_descrip, dst_descrip, lmatches, 2);
 
   for(size_t i = 0; i < lmatches.size(); ++i) {
     const cv::DMatch& bestMatch   = lmatches[i][0];
     const cv::DMatch& betterMatch = lmatches[i][1];
     float distanceRatio = bestMatch.distance / betterMatch.distance;
-    if (distanceRatio < 0.75) {
+    if (distanceRatio < param_.pass_thresh_) {
       matches.push_back(bestMatch);
     }
   }
@@ -198,7 +279,51 @@ int ImageTracker::matchLineFeature(const cv::Mat& ref_descrip, const cv::Mat& ds
   return static_cast<int>(matches.size());
 }
 
+// cv::Mat ImageTracker::setLineMask()
+// {
+//   cv::Mat mask(camera_->height(), camera_->width(), CV_8UC1, 255);
 
+//   struct TempData {
+//     int id, heat;
+//     double ts;
+//     LINE_ENDS ends;
+//     cv::Mat desc;
+//   };
+
+//   vector<TempData> cache(prev_line_features_.size());
+//   for (size_t i = 0; i < last_points_.size(); ++i) {
+//     cache[i] = TempData{line_feature_id_[i], line_track_cnt_[i], line_feature_ts_[i],
+//         prev_line_features_[i], prev_line_features_desc_.row(i).clone()};
+//   }
+
+//   sort(cache.begin(), cache.end(), [](const TempData& a, const TempData& b) {
+//     return a.heat > b.heat;
+//   });
+
+//   line_track_cnt_.clear();
+//   line_feature_ts_.clear();
+//   line_feature_id_.clear();
+//   prev_line_features_.clear();
+//   line_matcher_->clear();
+//   // prev_line_features_desc_ = cv::Mat();
+
+//   vector<uchar> status(cache.size(), 1);
+//   for (size_t i = 0; i < cache.size(); ++i) {
+//     const TempData& data = cache[i];
+//     cv::Point2f p1(data.ends.first(0), data.ends.first(1));
+//     cv::Point2f p2(data.ends.second(0), data.ends.second(1));
+//     if (mask.at<uchar>(p1) == 255 || mask.at<uchar>(p2) == 255) {
+//       cv::line(mask, p1, p2, 0, param_.min_line_cornor_gap);
+//       line_feature_ts_.emplace_back(data.ts);
+//       line_feature_id_.emplace_back(data.id);
+//       line_track_cnt_.emplace_back(data.heat);
+//       prev_line_features_.emplace_back(data.ends);
+//       line_matcher_->add(data.desc);
+//     }
+//   }
+
+//   return mask;
+// }
 
 TrackResult ImageTracker::fetchResult()
 {
@@ -206,7 +331,8 @@ TrackResult ImageTracker::fetchResult()
     last_ts_,
     points_id_, 
     last_points_,
-    last_points_un_
+    last_points_un_,
+    velocity_
   };
 }
 
@@ -239,7 +365,7 @@ vector<uchar> ImageTracker::checkWithFundamental()
 std::vector<uchar> ImageTracker::checkOutOfBorder(const std::vector<cv::Point2f> &pts)
 {
   std::vector<uchar> status(pts.size(), 1);
-  const int width = camera_->width();
+  const int width  = camera_->width();
   const int height = camera_->height();
   for (size_t i = 0; i < pts.size(); ++i) {
     const cv::Point2f &pt = pts[i];
@@ -316,7 +442,7 @@ cv::Point2f ImageTracker::computeVelocity(bool show_match)
     cv::waitKey();
   }
 
-  cv::Point3f move(0, 0, 0);
+  cv::Point3f move(0, 0, 1.e-4f);
   for (size_t i = 0; i < last_points_un_.size(); ++i) {
     cv::Point2f delta_in_mm = last_points_un_[i] - prev_points_un_[i];
     move += cv::Point3f(delta_in_mm.x, delta_in_mm.y, 1);
@@ -336,7 +462,6 @@ void ImageTracker::testUndistortPoint()
   cv::cvtColor(show, show, cv::COLOR_GRAY2BGR);
 
   cv::Point2f stride(camera_->width(), 0);
-
   for (size_t i = 0; i < last_points_.size(); ++i) {
 
     cv::Point3f pc(last_points_un_[i].x, last_points_un_[i].y, 1.0);

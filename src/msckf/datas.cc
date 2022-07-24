@@ -33,12 +33,15 @@ void ImuStatus::boxPlus(const Eigen::VectorXd& delta_imu)
   pwb += delta_imu.segment<3>(J_P);
   bg  += delta_imu.segment<3>(J_BG);
   ba  += delta_imu.segment<3>(J_BA);
-
-  // gravity update
-  Eigen::MatrixXd bu = S2Bx(); // 3 x 2
-  Eigen::Vector3d vec = bu*delta_imu.segment<2>(J_G);
-  Eigen::Quaterniond q = MATH_UTILS::rotateVecToQuaternion(vec);
-  g = q*g;
+#if 0
+  if (IMU_STATUS_DIM > IMU_STATUS_NUM*3) {
+    // gravity update
+    Eigen::MatrixXd bu = S2Bx(); // 3 x 2
+    Eigen::Vector3d vec = bu*delta_imu.segment<2>(J_G);
+    Eigen::Quaterniond q = MATH_UTILS::rotateVecToQuaternion(vec);
+    g = q*g;
+  }
+#endif
 }
 
 Eigen::VectorXd ImuStatus::boxMinus(const ImuStatus& state) const
@@ -50,25 +53,29 @@ Eigen::VectorXd ImuStatus::boxMinus(const ImuStatus& state) const
   dx.segment<3>(J_BA) = ba - state.ba;
   dx.segment<3>(J_BG) = bg - state.bg;
 
-  // gravity minus
-  const Eigen::Vector3d& vec = g;
-  Eigen::Vector2d res;
-  double v_sin = (MATH_UTILS::skewMatrix(vec)*state.g).norm();
-  double v_cos = vec.transpose() * state.g;
-  double theta = std::atan2(v_sin, v_cos);
-  if(v_sin < eps) {
-    if(std::fabs(theta) > eps) {
-      res[0] = 3.1415926;
-      res[1] = 0;
+#if 0
+  if (IMU_STATUS_DIM > IMU_STATUS_NUM*3) {
+    // gravity minus
+    const Eigen::Vector3d& vec = g;
+    Eigen::Vector2d res;
+    double v_sin = (MATH_UTILS::skewMatrix(vec)*state.g).norm();
+    double v_cos = vec.transpose() * state.g;
+    double theta = std::atan2(v_sin, v_cos);
+    if(v_sin < eps) {
+      if(std::fabs(theta) > eps) {
+        res[0] = 3.1415926;
+        res[1] = 0;
+      } else {
+        res[0] = 0;
+        res[1] = 0;
+      }
     } else {
-      res[0] = 0;
-      res[1] = 0;
+      Eigen::MatrixXd Bx = state.S2Bx();
+      res = theta/v_sin * Bx.transpose() * MATH_UTILS::skewMatrix(state.g)*vec;
     }
-  } else {
-    Eigen::MatrixXd Bx = state.S2Bx();
-    res = theta/v_sin * Bx.transpose() * MATH_UTILS::skewMatrix(state.g)*vec;
+    dx.segment<2>(J_G) = res;
   }
-  dx.segment<2>(J_G) = res;
+#endif
   return dx;
 }
 

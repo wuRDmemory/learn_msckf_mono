@@ -117,7 +117,10 @@ private:
   Eigen::MatrixXd kalmanGain(const Eigen::MatrixXd& P, Eigen::MatrixXd& H, Eigen::VectorXd& e)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
-  bool updateStates(const Eigen::VectorXd& delta_x) 
+  bool updateStates(Eigen::VectorXd& delta_x) 
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
+  bool staticCorrect() 
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 };
 

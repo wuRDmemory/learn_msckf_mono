@@ -20,6 +20,12 @@ Msckf::Msckf(string config_path)
     chi_square_distribution_[i] = boost::math::quantile(chi_squared_dist, 0.05);
   }
 
+  ofstream outf("/home/ubuntu/chi_square_dist.txt");
+  for (auto iter : chi_square_distribution_) {
+    outf << iter.first << ": " << iter.second << "," << endl;
+  }
+  outf.close();
+
   setup();
 
   is_stop_ = false;
@@ -68,7 +74,7 @@ bool Msckf::setup()
   data_.P_dx.block<3, 3>(J_BG, J_BG) = Eigen::Matrix3d::Identity()*0.01;
   data_.P_dx.block<3, 3>(J_V,  J_V)  = Eigen::Matrix3d::Identity()*0.25;
   data_.P_dx.block<3, 3>(J_BA, J_BA) = Eigen::Matrix3d::Identity()*0.01;
-  data_.P_dx.block<2, 2>(J_G,  J_G)  = Eigen::Matrix2d::Identity()*0.01;
+  // data_.P_dx.block<2, 2>(J_G,  J_G)  = Eigen::Matrix2d::Identity()*0.01;
 
   data_.Phi_test.setIdentity();
 
@@ -200,6 +206,8 @@ bool Msckf::initialization()
   Eigen::Vector3f gyro_cov = gyro2_mean - gyro_mean.cwiseAbs2();
 
   if (Config::init_param.verbose) {
+    LOG(INFO) << "[INIT] Accl mean: " << accl_mean.transpose();
+    LOG(INFO) << "[INIT] Gyro mean: " << gyro_mean.transpose();
     LOG(INFO) << "[INIT] Accl covariance: " << accl_cov.transpose();
     LOG(INFO) << "[INIT] Gyro covariance: " << gyro_cov.transpose();
   }
@@ -207,7 +215,7 @@ bool Msckf::initialization()
   if (   accl_cov.maxCoeff() < Config::init_param.imu_accl_cov 
       && gyro_cov.maxCoeff() < Config::init_param.imu_gyro_cov) {
     data_.imu_status.bg = gyro_mean.cast<double>();
-    data_.imu_status.ba.setZero();
+    data_.imu_status.ba = Eigen::Vector3d(-0.025266,0.136696,0.075593);
     
     data_.imu_status.g   = Eigen::Vector3d(0, 0, 9.81);
     data_.imu_status.Rwb = Eigen::Quaterniond::FromTwoVectors(accl_mean.cast<double>(), data_.imu_status.g);
@@ -263,6 +271,8 @@ bool Msckf::feedTrackResult(const TrackResult& track_result)
     last_imu_ = imu_data[0];
   }
 
+  // save previous imu status for static check
+  data_.last_imu_status = data_.imu_status;
   for (size_t i = 0; i < imu_data.size(); ++i) {
     const Eigen::Vector3f accl = 0.5*imu_data[i].accl + 0.5*last_imu_.accl;
     const Eigen::Vector3f gyro = 0.5*imu_data[i].gyro + 0.5*last_imu_.gyro;
@@ -273,13 +283,25 @@ bool Msckf::feedTrackResult(const TrackResult& track_result)
   std::set<int> obs_set(track_result.point_id.begin(), track_result.point_id.end());
   data_.imu_status.observes.swap(obs_set);
   
-  COMMON::TicToc tick;
-  predictCamStatus(track_result);
-  featureUpdateStatus();
-  pruneCameraStatus();
-
-  if (param_.verbose) {
-    LOG(INFO) << "[MSCKF] Update speed " << tick.toc() << "s.";
+  // LOG(INFO) << "[MSCKF] Move speed " << cv::norm(track_result.velocity_) << " pixel.";
+  if (cv::norm(track_result.velocity_) < param_.static_vel) {
+    // LOG(INFO) << "[MSCKF] velocity: " << track_result.velocity_;
+    COMMON::TicToc tick;
+    staticCorrect();
+    if (param_.verbose) {
+      LOG(INFO) << "[MSCKF] Update static speed " << tick.toc() << "s.";
+    }
+  } else {
+    COMMON::TicToc tick;
+    if (predictCamStatus(track_result)) {
+      LOG(INFO) << "[MSCKF] Update feature Status";
+      featureUpdateStatus();
+      LOG(INFO) << "[MSCKF] Prune camera Status";
+      pruneCameraStatus();
+      if (param_.verbose) {
+        LOG(INFO) << "[MSCKF] Update speed " << tick.toc() << "s.";
+      }
+    }
   }
 
   data_.imu_status.id++;
@@ -312,7 +334,7 @@ bool Msckf::predictImuStatus(const Eigen::Vector3d& accl_m, const Eigen::Vector3
   F.block<3, 3>(J_R, J_BG) = -Eigen::Matrix3d::Identity();
   F.block<3, 3>(J_V, J_R ) = -imu_status.Rwb.toRotationMatrix()*MATH_UTILS::skewMatrix<double>(accl);
   F.block<3, 3>(J_V, J_BA) = -imu_status.Rwb.toRotationMatrix();
-  F.block<3, 2>(J_V, J_G)  =  MATH_UTILS::skewMatrix<double>(imu_status.g)*imu_status.S2Bx();
+  // F.block<3, 2>(J_V, J_G)  =  MATH_UTILS::skewMatrix<double>(imu_status.g)*imu_status.S2Bx();
   F.block<3, 3>(J_P, J_V ) =  Eigen::Matrix3d::Identity();
 
   Drive_Matrix G = Drive_Matrix::Zero();
@@ -391,7 +413,20 @@ bool Msckf::predictImuStatus(const Eigen::Vector3d& accl_m, const Eigen::Vector3
 
 bool Msckf::predictCamStatus(const TrackResult& track_result)
 {
-  
+  if (!data_.cameras_.empty()) {
+    const auto& imu_status = data_.imu_status;
+    Eigen::Quaterniond qwc = imu_status.Rwb*imu_status.Rbc; qwc.normalize();
+    Eigen::Vector3d pwc = imu_status.pwb + imu_status.Rwb*imu_status.pbc;
+
+    Eigen::Quaterniond last_Rwc = std::prev(data_.cameras_.end())->second.Rwc;
+    Eigen::Vector3d last_pwc = std::prev(data_.cameras_.end())->second.pwc;
+    
+    Eigen::Vector3d rotate = MATH_UTILS::quaternionToRotateVector<double>(last_Rwc.inverse()*qwc);
+    if (rotate.norm() < 0.0523 && (pwc - last_pwc).norm() < 0.1) {
+      return false;
+    }
+  }
+
   // add features
   int feature_cnt = data_.features_.size();
   int curr_track_feature = 0;
@@ -435,9 +470,9 @@ bool Msckf::predictCamStatus(const TrackResult& track_result)
 
   Eigen::MatrixXd& P = data_.P_dx;
   Eigen::MatrixXd J_cam_imu = Eigen::MatrixXd::Zero(6, IMU_STATUS_DIM);
-  J_cam_imu.block<3, 3>(C_R, J_R) = imu_status.Rbc.toRotationMatrix().transpose();
+  J_cam_imu.block<3, 3>(C_R, J_R) =  imu_status.Rbc.toRotationMatrix().transpose();
   J_cam_imu.block<3, 3>(C_P, J_R) = -imu_status.Rwb.toRotationMatrix()*MATH_UTILS::skewMatrix(imu_status.pbc);
-  J_cam_imu.block<3, 3>(C_P, J_P) = Eigen::Matrix3d::Identity();
+  J_cam_imu.block<3, 3>(C_P, J_P) =  Eigen::Matrix3d::Identity();
 
   P.conservativeResize(old_row + 6, old_col + 6);
 
@@ -606,7 +641,7 @@ bool Msckf::pruneCameraStatus()
     }
 
     measurementUpdateIKF(valid_ftr_id, jacobian_rows, "PRUNE");
-    
+
     // remove cam in observe
     for (int id : valid_ftr_id) {
       for (int cam_id : remove_cam_id) {
@@ -710,7 +745,9 @@ bool Msckf::measurementUpdateIKF(const std::vector<int>& ftr_id, int measure_dim
 
     Eigen::MatrixXd K = kalmanGain(P, H, e);
     Eigen::VectorXd iter_delta_x = K*(e + H * delta_x) - delta_x;
-    updateStates(iter_delta_x);
+    if (!updateStates(iter_delta_x)) {
+      return false;
+    }
 
     converage = iter_delta_x.maxCoeff() < 0.001;
     if (converage || iter == param_.ikf_iters) {
@@ -934,23 +971,37 @@ Eigen::MatrixXd Msckf::kalmanGain(const Eigen::MatrixXd& P, Eigen::MatrixXd& H, 
 #endif
 }
 
-bool Msckf::updateStates(const Eigen::VectorXd& delta_x)
+bool Msckf::updateStates(Eigen::VectorXd& delta_x)
 {
   if (delta_x.rows() < IMU_STATUS_DIM) {
     LOG(ERROR) << "[MSCKF]: Update delta dimension is wrong, " << delta_x.rows();
     return false;
   }
 
+  if (delta_x.hasNaN()) {
+    LOG(ERROR) << "[MSCKF]: Update delta has nan, " << delta_x.transpose();
+    return false;
+  }
+
   // update state
-  const Eigen::VectorXd& delta_imu = delta_x.head(IMU_STATUS_DIM);
-  if (   delta_imu.segment<3>(J_V).norm() > 0.5 
-      || delta_imu.segment<3>(J_P).norm() > 1.0) {
+  bool update = true;
+  Eigen::VectorXd delta_imu = delta_x.head(IMU_STATUS_DIM);
+  if (   delta_imu.segment<3>(J_V).norm() > 10.0 
+      || delta_imu.segment<3>(J_P).norm() > 10.0) {
     LOG(WARNING) << "[MSCKF] Velocity update: " << delta_imu.segment<3>(J_V).transpose() << ". norm: " << delta_imu.segment<3>(J_V).norm();
     LOG(WARNING) << "[MSCKF] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
     LOG(WARNING) << "[MSCKF] Update delta is too large.";
+    delta_imu.segment<3>(J_V) = Eigen::Vector3d::Zero();
+    delta_imu.segment<3>(J_P) = Eigen::Vector3d::Zero(); 
+    delta_imu.segment<3>(J_R) = Eigen::Vector3d::Zero(); // TODO: check
+    update = false;
   }
 
   data_.imu_status.boxPlus(delta_imu);
+
+  if (!update) {
+    return false;
+  }
 
   int rows = 0;
   for (auto& id_data : data_.cameras_) {
@@ -961,4 +1012,54 @@ bool Msckf::updateStates(const Eigen::VectorXd& delta_x)
 
   return true;
 }
+
+bool Msckf::staticCorrect()
+{
+  Eigen::MatrixXd H(9, IMU_STATUS_DIM); H.setZero();
+  H.block<3, 3>(0, J_R) = 0.5 * Eigen::Matrix3d::Identity();
+  H.block<3, 3>(3, J_V).setIdentity();
+  H.block<3, 3>(6, J_P).setIdentity();
+
+  Eigen::VectorXd e(9); e.setZero();
+  auto dq = data_.last_imu_status.Rwb * data_.imu_status.Rwb.inverse();
+  e.segment<3>(0) = Eigen::Vector3d(dq.x(), dq.y(), dq.z());
+  e.segment<3>(3) = -data_.imu_status.vwb;
+  e.segment<3>(6) = data_.last_imu_status.pwb - data_.imu_status.pwb;
+
+  Eigen::MatrixXd P = data_.P_dx.block<IMU_STATUS_DIM, IMU_STATUS_DIM>(0, 0);
+  Eigen::MatrixXd S = H*P*H.transpose() + Eigen::MatrixXd::Identity(H.rows(), H.rows())*0.001f;
+  Eigen::VectorXd K = (S.ldlt().solve(H*P)).transpose();
+
+  Eigen::VectorXd dx = K*e;
+  if (dx.hasNaN()) {
+    LOG(ERROR) << "[STATIC CHECK] has nan: " << e.transpose();
+    return false;
+  }
+
+  Eigen::MatrixXd I_KF  = Eigen::MatrixXd::Identity(K.rows(), H.cols()) - K*H;
+  Eigen::MatrixXd new_P = I_KF*data_.P_dx;
+  // data_.P_dx.block<IMU_STATUS_DIM, IMU_STATUS_DIM>(0, 0) = (new_P + new_P.transpose()) / 2.0;
+
+  // Eigen::Quaterniond Rwb = data_.imu_status.Rwb * MATH_UTILS::rotateVecToQuaternion<double>(dx.segment<3>(J_R));
+  // Eigen::Vector3d vwb = data_.imu_status.vwb + dx.segment<3>(J_V);
+  // Eigen::Vector3d pwb = data_.imu_status.pwb + dx.segment<3>(J_P);
+
+  // LOG(INFO) << "[MSCKF] Static update : " << dx.transpose();
+  // LOG(INFO) << "[MSCKF] New Rwb : " << Rwb.coeffs().transpose();
+  // LOG(INFO) << "[MSCKF] New Vwb : " << vwb.transpose();
+  // LOG(INFO) << "[MSCKF] New Pwb : " << pwb.transpose();
+
+  // data_.imu_status = data_.last_imu_status;
+  data_.imu_status.Rwb = data_.last_imu_status.Rwb;
+  data_.imu_status.pwb = data_.last_imu_status.pwb;
+  data_.imu_status.vwb.setZero();
+  data_.imu_status.ba  += dx.segment<3>(J_BA);
+  data_.imu_status.bg  += dx.segment<3>(J_BG);
+
+  // LOG(INFO) << "[MSCKF] New ba : " << data_.imu_status.ba.transpose();
+  // LOG(INFO) << "[MSCKF] New bg : " << data_.imu_status.bg.transpose();
+
+  return true;
+}
+
 } // namespace MSCKF

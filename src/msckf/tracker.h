@@ -36,6 +36,14 @@ private:
 
   const TrackParam &param_;
 
+  // Line feature
+  std::vector<int>    line_track_cnt_;
+  std::vector<int>    line_feature_id_;
+  std::vector<double> line_feature_ts_;
+  cv::Ptr<cv::DescriptorMatcher> line_matcher_;
+  std::vector<cv::line_descriptor::KeyLine> prev_line_features_;
+  cv::Mat prev_line_features_desc_;
+
 public:
   ImageTracker(TrackParam &param, CameraParam &camera_param);
   ~ImageTracker();
@@ -47,9 +55,14 @@ private:
   std::vector<uchar> checkOutOfBorder(const std::vector<cv::Point2f> &pts);
   std::vector<uchar> checkWithFundamental();
   cv::Mat setMask();
+  cv::Mat setLineMask();
+  bool isIntersect(LINE_ENDS line, cv::Mat& image);
   cv::Point2f computeVelocity(bool show_match = false);
   int extractLineFeature(const cv::Mat& image, const cv::Mat& mask, std::vector<cv::line_descriptor::KeyLine>& lines, cv::Mat& descrips);
   int matchLineFeature(const cv::Mat& ref_descrip, const cv::Mat& dst_descrip, std::vector<cv::DMatch>& matches);
+  int outlierCheck(const std::vector<LINE_ENDS>& ref_lines, std::vector<LINE_ENDS>& cur_lines);
+  int fetchMatchLines(vector<cv::line_descriptor::KeyLine>& train_lines, vector<cv::line_descriptor::KeyLine>& query_lines, vector<cv::DMatch>& matches, 
+      vector<LINE_ENDS>& ref_lines, vector<LINE_ENDS>& cur_lines);
 
 private:
   void testUndistortPoint();

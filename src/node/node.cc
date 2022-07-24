@@ -184,7 +184,7 @@ bool Node::publishImuPath() {
 
     nav_msgs::Odometry odom;
     odom.header = path.header;
-    odom.child_frame_id = "robot";
+    odom.child_frame_id = ref_frame;
     odom.pose.pose = path.poses.back().pose;
     odom.twist.twist.linear.x =  imu_status.g.x();
     odom.twist.twist.linear.y =  imu_status.g.y();

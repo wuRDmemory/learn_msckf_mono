@@ -22,7 +22,7 @@ public:
 
   double toc() 
   {
-    return chrono::duration_cast<chrono::milliseconds>(Clock::now() - begin_time_).count();
+    return chrono::duration_cast<chrono::milliseconds>(Clock::now() - begin_time_).count() / 1000.0;
   }
 private:
   Time   begin_time_;

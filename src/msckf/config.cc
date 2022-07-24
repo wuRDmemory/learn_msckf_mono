@@ -137,6 +137,7 @@ void Config::readConfig(string config_file_path)
   { //* read msck paramter
     cv::FileNode n = fs["msckf"];
     msckf_param.verbose = (int)n["verbose"] != 0;
+    msckf_param.static_vel = (double)n["static_vel"];
     msckf_param.noise_accl = (double)n["noise_accl"];
     msckf_param.noise_gyro = (double)n["noise_gyro"];
     msckf_param.noise_accl_bias = (double)n["noise_accl_bias"];
@@ -163,12 +164,14 @@ void Config::readConfig(string config_file_path)
  
   { //* read SFM feature configuration
     cv::FileNode n = fs["sfm"];
+    sfm_param.verbose = (int)n["verbose"] == 1;
     sfm_param.max_iter_cnt = (int)n["max_iter_cnt"];
     sfm_param.max_try_cnt  = (int)n["max_try_cnt"];
     sfm_param.converge_threshold = (double)n["converge_threshold"];
     sfm_param.min_disparity_angle = cos((double)n["min_disparity_angle"]*M_PI/180.0);
     sfm_param.min_disparity_distance = (double)n["min_disparity_distance"];
 
+    LOG(INFO) << std::fixed << "[CONFIG] verbose : \t" << sfm_param.verbose; 
     LOG(INFO) << std::fixed << "[CONFIG] SFM max iter count : \t" << sfm_param.max_iter_cnt; 
     LOG(INFO) << std::fixed << "[CONFIG] SFM max try  count : \t" << sfm_param.max_try_cnt;
     LOG(INFO) << std::fixed << "[CONFIG] SFM converge threshold  : \t" << sfm_param.converge_threshold;

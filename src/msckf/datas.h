@@ -43,11 +43,12 @@ struct TrackResult
   vector<int>         point_id;
   vector<cv::Point2f> point_uv;
   vector<cv::Point2f> point_f;
+  cv::Point2f velocity_;
 
   // line part
   vector<int>       line_id;
-  vector<LINE_ENDS> line_ends;
   vector<bool>      tracking;
+  vector<LINE_ENDS> line_ends;
 };
 
 struct ImuStatus
@@ -124,6 +125,7 @@ struct Data
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   ImuStatus      imu_status;
+  ImuStatus      last_imu_status;
   CameraWindow   cameras_;
   FeatureManager features_;
 

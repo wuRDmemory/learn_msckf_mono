@@ -77,6 +77,9 @@ set(ALL_LIBS
   pthread
 )
 
+message("-- Suitesparse libraries")
+message(${SUITESPARSE_LIBRARIES})
+message(${SUITESPARSE_INCLUDE_DIRS})
 
 file(GLOB_RECURSE ALL_SRCS ${SRC_DIR}/*.cc)
 # file(GLOB_RECURSE ALL_NODE ${SRC_DIR}/*_node.cc)

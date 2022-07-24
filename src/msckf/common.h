@@ -39,7 +39,7 @@ constexpr double Rad2Deg = 180 / M_PI;
 
 constexpr int IMU_STATUS_NUM = 5;
 constexpr int IMU_NOISE_NUM  = 4;
-constexpr int IMU_STATUS_DIM = 3*IMU_STATUS_NUM + 2;
+constexpr int IMU_STATUS_DIM = 3*IMU_STATUS_NUM; // + 2;
 constexpr int IMU_NOISE_DIM  = 3*IMU_NOISE_NUM;
 constexpr int J_R  = 0;
 constexpr int J_BG = 3;

@@ -24,6 +24,7 @@ struct InitParam {
 struct MsckfParam {
   bool verbose;
   // filter param
+  double static_vel;
   double noise_accl;
   double noise_gyro;
   double noise_accl_bias;
@@ -53,6 +54,11 @@ struct TrackParam {
   int min_cornor_gap;
   double fm_threshold;
   double track_frequency;
+
+  // line feature
+  int max_line_num;
+  int min_line_cornor_gap;
+  double pass_thresh_;
 };
 
 class Config{
