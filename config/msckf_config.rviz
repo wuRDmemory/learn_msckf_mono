@@ -54,8 +54,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 0.3782554566860199
-        Min Value: -0.721944272518158
+        Max Value: 0.47967252135276794
+        Min Value: -0.7829086184501648
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -166,7 +166,7 @@ Visualization Manager:
           Scale: 1
           Value: true
         Value: true
-      Enabled: true
+      Enabled: false
       Keep: 100
       Name: Odometry
       Position Tolerance: 0.10000000149011612
@@ -183,7 +183,7 @@ Visualization Manager:
         Value: Arrow
       Topic: /imu_odom
       Unreliable: false
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -228,9 +228,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.6003983020782471
+      Pitch: 0.6153982877731323
       Target Frame: <Fixed Frame>
-      Yaw: 4.048568248748779
+      Yaw: 4.848573684692383
     Saved: ~
 Window Geometry:
   Displays:

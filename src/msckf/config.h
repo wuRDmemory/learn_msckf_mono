@@ -17,6 +17,7 @@ struct CameraParam {
 struct InitParam {
   bool verbose;
   int imu_cnt;
+  double imu_dtime;
   double imu_accl_cov;
   double imu_gyro_cov;
 };

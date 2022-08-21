@@ -34,6 +34,7 @@ track:
 initial:
   verbose: 1
   imu_cnt: 200
+  imu_dtime: 2
   imu_accl_cov: 1.0
   imu_gyro_cov: 0.1
 

@@ -169,48 +169,56 @@ void Msckf::imageProcess()
 
 bool Msckf::initialization()
 {
-  size_t N = 0;
+  size_t N0to1 = 0;
+  size_t N1to2 = 0;
   double timestamp = DBL_MIN;
-  Eigen::Vector3f accl_sum(0, 0, 0), accl2_sum(0, 0, 0);
-  Eigen::Vector3f gyro_sum(0, 0, 0), gyro2_sum(0, 0, 0);
+  Eigen::Vector3f accl0to1_sum(0, 0, 0), accl0to1_squ_sum(0, 0, 0);
+  Eigen::Vector3f accl1to2_sum(0, 0, 0), accl1to2_squ_sum(0, 0, 0);
+  Eigen::Vector3f gyro0to1_sum(0, 0, 0);
   
   {
     std::unique_lock<mutex> lock(imu_mutex_);
-    if (imu_buffer_.size() < Config::init_param.imu_cnt) {
+    if (imu_buffer_.back().ts - imu_buffer_.front().ts < Config::init_param.imu_dtime) {
       return false;
     }
 
     for (size_t i = 0; i < imu_buffer_.size(); ++i) {
       const ImuData& imu_data = imu_buffer_.at(i);
       timestamp = imu_data.ts;
-      accl_sum  += imu_data.accl;
-      gyro_sum  += imu_data.gyro;
-      accl2_sum += imu_data.accl.cwiseAbs2();
-      gyro2_sum += imu_data.gyro.cwiseAbs2();
-      ++N;
+      if (imu_data.ts - imu_buffer_.front().ts < Config::init_param.imu_dtime*0.5) {
+        N0to1++;
+        accl0to1_sum += imu_data.accl;
+        accl0to1_squ_sum += imu_data.accl.cwiseAbs2();
+        gyro0to1_sum += imu_data.gyro;
+      } else {
+        N1to2++;
+        accl1to2_sum += imu_data.accl;
+        accl1to2_squ_sum += imu_data.accl.cwiseAbs2();
+      }
     }
   }
 
-  Eigen::Vector3f accl_mean  = accl_sum / N;
-  Eigen::Vector3f gyro_mean  = gyro_sum / N;
-  Eigen::Vector3f accl2_mean = accl2_sum / N;
-  Eigen::Vector3f gyro2_mean = gyro2_sum / N;
+  Eigen::Vector3f gyro_mean = gyro0to1_sum / N0to1;
+  Eigen::Vector3f accl0to1_mean = accl0to1_sum / N0to1;
+  Eigen::Vector3f accl1to2_mean = accl1to2_sum / N1to2;
+  Eigen::Vector3f accl0to1_squ_mean = accl0to1_squ_sum / N0to1;
+  Eigen::Vector3f accl1to2_squ_mean = accl1to2_squ_sum / N1to2;
 
-  Eigen::Vector3f accl_cov = accl2_mean - accl_mean.cwiseAbs2();
-  Eigen::Vector3f gyro_cov = gyro2_mean - gyro_mean.cwiseAbs2();
+  Eigen::Vector3f accl0to1_cov = accl0to1_squ_mean - accl0to1_mean.cwiseAbs2();
+  Eigen::Vector3f accl1to2_cov = accl1to2_squ_mean - accl1to2_mean.cwiseAbs2();
 
   if (Config::init_param.verbose) {
-    LOG(INFO) << "[INIT] Accl covariance: " << accl_cov.transpose();
-    LOG(INFO) << "[INIT] Gyro covariance: " << gyro_cov.transpose();
+    LOG(INFO) << "[INIT] Accl 0 to 1 covariance: " << accl0to1_cov.transpose();
+    LOG(INFO) << "[INIT] Accl 1 to 2 covariance: " << accl1to2_cov.transpose();
   }
 
-  if (   accl_cov.maxCoeff() < Config::init_param.imu_accl_cov 
-      && gyro_cov.maxCoeff() < Config::init_param.imu_gyro_cov) {
+  if (   accl0to1_cov.maxCoeff() < Config::init_param.imu_accl_cov 
+      && accl1to2_cov.maxCoeff() > Config::init_param.imu_accl_cov) {
     data_.imu_status.bg = gyro_mean.cast<double>();
     data_.imu_status.ba.setZero();
     
     data_.imu_status.g   = Eigen::Vector3d(0, 0, 9.81);
-    data_.imu_status.Rwb = Eigen::Quaterniond::FromTwoVectors(accl_mean.cast<double>(), data_.imu_status.g);
+    data_.imu_status.Rwb = Eigen::Quaterniond::FromTwoVectors(accl0to1_mean.cast<double>(), data_.imu_status.g);
     data_.imu_status.pwb.setZero();
     data_.imu_status.vwb.setZero();
 
@@ -733,7 +741,7 @@ bool Msckf::measurementUpdateIKF(const std::vector<int>& ftr_id, int measure_dim
   if (param_.verbose) {
     LOG(INFO) << "[" << stage << "-IKF] Iterator times : " << iter << ", coverage: " << (converage ? "True" : "False") << ", Loss from " << init_loss << " -> " << last_loss;
   }
-  LOG(INFO) << "[" << stage << "-IKF] Gravity: " << imu_prop.g.transpose() << " -> " << data_.imu_status.g.transpose() << ", norm: " << data_.imu_status.g.norm();
+  // LOG(INFO) << "[" << stage << "-IKF] Gravity: " << imu_prop.g.transpose() << " -> " << data_.imu_status.g.transpose() << ", norm: " << data_.imu_status.g.norm();
 
   return true;
 }

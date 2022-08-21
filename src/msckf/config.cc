@@ -18,6 +18,7 @@ CameraParam Config::camera_param = {
 InitParam Config::init_param = {
   .verbose = false,
   .imu_cnt = 200,
+  .imu_dtime = 2,
   .imu_accl_cov = 0.5,
   .imu_gyro_cov = 0.1,
 };
@@ -126,10 +127,12 @@ void Config::readConfig(string config_file_path)
     cv::FileNode n = fs["initial"];
     init_param.verbose = (int)n["verbose"] != 0;
     init_param.imu_cnt = (int)n["imu_cnt"];
+    init_param.imu_dtime = (double)n["imu_dtime"];
     init_param.imu_accl_cov = (double)n["imu_accl_cov"];
     init_param.imu_gyro_cov = (double)n["imu_gyro_cov"];
 
     LOG(INFO) << std::fixed << "[CONFIG] Initial imu count : \t" << init_param.imu_cnt;
+    LOG(INFO) << std::fixed << "[CONFIG] Initial imu dtime : \t" << init_param.imu_dtime;
     LOG(INFO) << std::fixed << "[CONFIG] Initial imu accl cov : \t" << init_param.imu_accl_cov;
     LOG(INFO) << std::fixed << "[CONFIG] Initial imu gyro cov : \t" << init_param.imu_gyro_cov;
   }
