@@ -43,6 +43,9 @@ struct SFMParam {
   bool verbose;
   int max_iter_cnt;
   int max_try_cnt;
+  int max_cond_number;
+  double min_dist;
+  double max_dist;
   double converge_threshold;
   double min_disparity_angle;
   double min_disparity_distance;

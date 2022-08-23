@@ -40,6 +40,9 @@ MsckfParam Config::msckf_param = {
 SFMParam Config::sfm_param = {
   .max_iter_cnt = 10,
   .max_try_cnt = 10,
+  .max_cond_number = 20000,
+  .min_dist = 0,
+  .max_dist = 50,
   .converge_threshold = 0.1,
   .min_disparity_angle = 0.1,
   .min_disparity_distance = 0.1
@@ -166,14 +169,22 @@ void Config::readConfig(string config_file_path)
  
   { //* read SFM feature configuration
     cv::FileNode n = fs["sfm"];
+    sfm_param.verbose = (int)n["verbose"] == 1;
     sfm_param.max_iter_cnt = (int)n["max_iter_cnt"];
     sfm_param.max_try_cnt  = (int)n["max_try_cnt"];
+    sfm_param.max_cond_number = (int)n["max_cond_number"];
+    sfm_param.max_dist = (double)n["max_dist"];
+    sfm_param.min_dist = (double)n["min_dist"];
     sfm_param.converge_threshold = (double)n["converge_threshold"];
     sfm_param.min_disparity_angle = cos((double)n["min_disparity_angle"]*M_PI/180.0);
     sfm_param.min_disparity_distance = (double)n["min_disparity_distance"];
 
+    LOG(INFO) << "[CONFIG] SFM verbose : \t" << sfm_param.verbose; 
     LOG(INFO) << std::fixed << "[CONFIG] SFM max iter count : \t" << sfm_param.max_iter_cnt; 
     LOG(INFO) << std::fixed << "[CONFIG] SFM max try  count : \t" << sfm_param.max_try_cnt;
+    LOG(INFO) << std::fixed << "[CONFIG] SFM max cond number : \t" << sfm_param.max_cond_number;
+    LOG(INFO) << std::fixed << "[CONFIG] SFM max distance : \t" << sfm_param.max_dist;
+    LOG(INFO) << std::fixed << "[CONFIG] SFM min distance : \t" << sfm_param.min_dist;
     LOG(INFO) << std::fixed << "[CONFIG] SFM converge threshold  : \t" << sfm_param.converge_threshold;
     LOG(INFO) << std::fixed << "[CONFIG] SFM min disparity angle : \t" << acos(sfm_param.min_disparity_angle)*180/M_PI;
     LOG(INFO) << std::fixed << "[CONFIG] SFM min disparity distance : \t" << sfm_param.min_disparity_distance;

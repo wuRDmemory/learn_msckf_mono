@@ -228,9 +228,9 @@ bool Msckf::initialization()
 
     data_.imu_status.ts  = timestamp;
 
-    Eigen::Vector3d angles = data_.imu_status.Rwb.toRotationMatrix().eulerAngles(2, 1, 0);
-    // data_.imu_status.Rwb = MATH_UTILS::eulerToQuaternion<double>(Eigen::Vector3d(0, angles[1], angles[2]));
-    // angles = data_.imu_status.Rwb.toRotationMatrix().eulerAngles(2, 1, 0);
+    Eigen::Vector3d angles = data_.imu_status.Rwb.toRotationMatrix().eulerAngles(0, 1, 2); // x y z
+    data_.imu_status.Rwb = MATH_UTILS::eulerToQuaternion<double>(Eigen::Vector3d(0, angles[1], angles[0]));
+    angles = data_.imu_status.Rwb.toRotationMatrix().eulerAngles(2, 1, 0);
 
     if (Config::init_param.verbose) {
       LOG(INFO) << std::fixed << std::setprecision(4) << "[INIT] IMU initialization success in " << timestamp << "s.";

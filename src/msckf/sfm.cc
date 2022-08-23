@@ -1,4 +1,5 @@
 #include "sfm.h"
+#include "math_utils.h"
 
 namespace MSCKF {
 
@@ -12,6 +13,55 @@ double huber(const double e, const double epsilon)
   }
 }
 };
+
+bool SFM::tryToInit(Feature& ftr, CameraWindow& cams, Eigen::Vector3d& position)
+{
+  // Our linear system matrices
+  Eigen::Matrix3d A = Eigen::Matrix3d::Zero();
+  Eigen::Vector3d b = Eigen::Vector3d::Zero();
+
+  const int anchor_cam_id = ftr.observes.begin()->first;
+  const Eigen::Quaterniond Rwa = cams.at(anchor_cam_id).Rwc;
+  const Eigen::Vector3d pwa = cams.at(anchor_cam_id).pwc;
+
+  for (const auto& pair : ftr.observes) {
+    const int cam_id = pair.first;
+    // if (cam_id == anchor_cam_id) {
+    //   continue;
+    // }
+
+    Eigen::Vector3d fc = pair.second;
+    Eigen::Matrix3d Rac = (Rwa.inverse() * cams.at(cam_id).Rwc).toRotationMatrix();
+    Eigen::Vector3d pac = Rwa.inverse()*(cams.at(cam_id).pwc - pwa);
+    Eigen::Vector3d afc = (Rac * fc).normalized();
+    
+    Eigen::Matrix3d Nafc = MATH_UTILS::skewMatrix(afc);
+    Eigen::Matrix3d NNT = Nafc.transpose()*Nafc;
+
+    A.noalias() += NNT;
+    b.noalias() += NNT * pac;
+  }
+
+  // Solve the linear system
+  Eigen::Vector3d p_f = A.colPivHouseholderQr().solve(b);
+
+  // Check A and p_f
+  Eigen::JacobiSVD<Eigen::Matrix3d> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
+  Eigen::Vector3d singularValues = svd.singularValues();
+  double condA = singularValues(0) / singularValues(2);
+  if (   std::abs(condA) > param_.max_cond_number 
+      || p_f(2, 0) < param_.min_dist 
+      || p_f(2, 0) > param_.max_dist 
+      || std::isnan(p_f.norm())) {
+      LOG(WARNING) << "cond number: " << condA;
+      LOG(WARNING) << "point: " << p_f.transpose();
+    return false;
+  }
+
+  // Store it in our feature object
+  position = Rwa.toRotationMatrix()*p_f + pwa;
+  return true;
+}
 
 bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
 {
@@ -46,6 +96,11 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
   Eigen::Vector3d w_point_c0 = R_w_c0*f_c0*depth(0) + t_w_c0;
   Eigen::Vector3d w_point_c1 = R_w_c1*f_c1*depth(1) + t_w_c1;
   Eigen::Vector3d init_postion = (w_point_c0 + w_point_c1)/2;
+
+  Eigen::Vector3d init_postion1(0, 0, 0);
+  if (!tryToInit(ftr, cams, init_postion1)) {
+    ;
+  }
 
   int iter_cnt = 0;
   bool converge = false;
@@ -136,11 +191,13 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
   ftr.point_3d = position;
   ftr.status   = valid_feature ? FeatureStatus::Inited : FeatureStatus::NotInit;
 
-  if (param_.verbose) {
+  // if (param_.verbose) {
     LOG(INFO) << "init postion: " << init_postion.transpose();
+    LOG(INFO) << "init1 postion: " << init_postion1.transpose();
     LOG(INFO) << "opti postion: " << position.transpose();
+    LOG(INFO) << "point valid: " << valid_feature;
     // TODO: report some optimization information like ceres
-  }
+  // }
 
   return valid_feature;
 }

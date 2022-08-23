@@ -53,9 +53,12 @@ msckf:
   track_threshold: 0.5
 
 sfm:
-  verbose: 0
+  verbose: 1
   max_iter_cnt: 20
   max_try_cnt: 10
+  max_cond_number: 20000
+  min_dist: 0.1
+  max_dist: 100
   converge_threshold: 5.e-7
   min_disparity_angle: 5 # in deg
   min_disparity_distance: 0.1
