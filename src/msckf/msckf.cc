@@ -809,6 +809,7 @@ bool Msckf::featureJacobian(const Feature& ftr, const CameraWindow& cam_window, 
     i += 2;
   }
 
+  // TODO: use givens
   Eigen::JacobiSVD<Eigen::MatrixXd> svd(H_Pfj, Eigen::ComputeFullU | Eigen::ComputeThinV);
   Eigen::MatrixXd A = svd.matrixU().rightCols(2*constraint_cam_id.size() - 3);
 
@@ -903,43 +904,24 @@ bool Msckf::gatingTest(const Eigen::MatrixXd& H, const Eigen::VectorXd& r, const
 
 Eigen::MatrixXd Msckf::kalmanGain(const Eigen::MatrixXd& P, Eigen::MatrixXd& H, Eigen::VectorXd& e)
 {
-#if 1
   if (H.rows() > H.cols()) {
-    Eigen::SparseMatrix<double> H_sparse = H.sparseView();
-    Eigen::SPQR<Eigen::SparseMatrix<double>> spqr_solver;
-    spqr_solver.setSPQROrdering(SPQR_ORDERING_NATURAL);
-    spqr_solver.compute(H_sparse);
+    Eigen::JacobiRotation<double> tempHo_GR;
+    const int cols = H.cols();
+    for (int n = 0; n < cols; ++n) {
+      for (int m = (int)H.rows()-1; m > n; --m) {
+        // Givens matrix G
+        tempHo_GR.makeGivens(H(m - 1, n), H(m, n));
+        (H.block(m - 1, n, 2, cols - n)).applyOnTheLeft(0, 1, tempHo_GR.adjoint());
+        (e.block(m - 1, 0, 2, 1)).applyOnTheLeft(0, 1, tempHo_GR.adjoint());
+      }
+    }
 
-    Eigen::MatrixXd H_dense;
-    Eigen::VectorXd e_dense;
-    (spqr_solver.matrixQ().transpose()*H).evalTo(H_dense);
-    (spqr_solver.matrixQ().transpose()*e).evalTo(e_dense);
-
-    H = H_dense.topRows(H.cols());
-    e = e_dense.head(H.cols());
+    H.conservativeResize(H.cols(), H.cols());
+    e.conservativeResize(H.cols(), 1);
   }
 
   Eigen::MatrixXd S = H*P*H.transpose() + Eigen::MatrixXd::Identity(H.rows(), H.rows())*param_.noise_observation;
   return (S.ldlt().solve(H*P)).transpose();
-#else
-  Eigen::MatrixXd K;
-  if (H.rows() > H.cols()) {
-    // when measurement dimension is large than states
-    // H : N * M
-    // P : M * M
-    Eigen::MatrixXd R = Eigen::MatrixXd::Identity(H.rows(), H.rows())*param_.noise_observation;
-    Eigen::MatrixXd inv_P = P.inverse(); // M * M
-    Eigen::MatrixXd HTRH = H.transpose() * R * H; // M * M
-    Eigen::MatrixXd S = HTRH + inv_P; // M * M
-    K = S.ldlt().solve(H.transpose() * R); // M * N
-  }
-  else {
-    Eigen::MatrixXd R = Eigen::MatrixXd::Identity(H.rows(), H.rows())*param_.noise_observation;
-    Eigen::MatrixXd S = H*P*H.transpose() + R;
-    K = (S.ldlt().solve(H*P)).transpose(); // M * N
-  }
-  return K;
-#endif
 }
 
 bool Msckf::updateStates(const Eigen::VectorXd& delta_x)

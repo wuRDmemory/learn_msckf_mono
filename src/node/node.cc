@@ -4,8 +4,8 @@
  * ros topic names
  */
 const char ref_frame[]         = "map";
-const char imu_sub_name[]      = "imu";
-const char img_sub_name[]      = "image";
+const char imu_sub_name[]      = "imu0";
+const char img_sub_name[]      = "cam0/image_raw";
 const char img_pub_name[]      = "track_result";
 const char cam_pub_path_name[] = "cam_path";
 const char imu_pub_path_name[] = "imu_path";

@@ -5,6 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
+        - /PointCloud1
       Splitter Ratio: 0.5
     Tree Height: 403
   - Class: rviz/Selection
@@ -54,8 +55,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 0.47967252135276794
-        Min Value: -0.7829086184501648
+        Max Value: 4.254075527191162
+        Min Value: -6.484175205230713
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -74,7 +75,7 @@ Visualization Manager:
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.019999999552965164
+      Size (m): 0.029999999329447746
       Style: Flat Squares
       Topic: /feature
       Unreliable: false
@@ -212,7 +213,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 11.139066696166992
+      Distance: 15.161001205444336
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -220,17 +221,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 0.04909612983465195
-        Y: -0.0063171591609716415
-        Z: -0.030249401926994324
+        X: -0.33589449524879456
+        Y: 5.068752765655518
+        Z: -1.3292853832244873
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.6153982877731323
+      Pitch: 1.085397481918335
       Target Frame: <Fixed Frame>
-      Yaw: 4.848573684692383
+      Yaw: 3.0985937118530273
     Saved: ~
 Window Geometry:
   Displays:

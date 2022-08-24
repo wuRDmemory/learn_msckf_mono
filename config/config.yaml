@@ -53,7 +53,7 @@ msckf:
   track_threshold: 0.5
 
 sfm:
-  verbose: 1
+  verbose: 0
   max_iter_cnt: 20
   max_try_cnt: 10
   max_cond_number: 20000

@@ -53,8 +53,10 @@ bool SFM::tryToInit(Feature& ftr, CameraWindow& cams, Eigen::Vector3d& position)
       || p_f(2, 0) < param_.min_dist 
       || p_f(2, 0) > param_.max_dist 
       || std::isnan(p_f.norm())) {
-      LOG(WARNING) << "cond number: " << condA;
-      LOG(WARNING) << "point: " << p_f.transpose();
+      if (param_.verbose) {
+        LOG(WARNING) << "cond number: " << condA;
+        LOG(WARNING) << "point: " << p_f.transpose();
+      }
     return false;
   }
 
