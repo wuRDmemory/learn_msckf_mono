@@ -69,43 +69,16 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
     return true;
   }
 
-  // 1. init position, use last and recent measurement.
-  const int c0_id = ftr.observes.begin()->first;
-  const int c1_id = prev(ftr.observes.end())->first;
-
-  const Eigen::Vector3d f_c0 = ftr.observes.begin()->second;
-  const Eigen::Vector3d f_c1 = prev(ftr.observes.end())->second;
-
-  Eigen::Quaterniond R_w_c0 = cams.at(c0_id).Rwc;
-  Eigen::Vector3d    t_w_c0 = cams.at(c0_id).pwc;
-
-  Eigen::Quaterniond R_w_c1 = cams.at(c1_id).Rwc;
-  Eigen::Vector3d    t_w_c1 = cams.at(c1_id).pwc;
-
-  Eigen::Quaterniond R_c1_c0 = R_w_c1.inverse()*R_w_c0;
-  Eigen::Vector3d    t_c1_c0 = R_w_c1.inverse()*(t_w_c0 - t_w_c1);
-
-  Eigen::Matrix<double, 3, 2> A;
-  A << R_c1_c0*f_c0, -f_c1;
-
-  Eigen::Vector2d depth = (A.transpose()*A).ldlt().solve(A.transpose()*t_c1_c0*-1);
-  if (depth.hasNaN()) {
-     return false;
-  }
-
-  Eigen::Vector3d w_point_c0 = R_w_c0*f_c0*depth(0) + t_w_c0;
-  Eigen::Vector3d w_point_c1 = R_w_c1*f_c1*depth(1) + t_w_c1;
-  Eigen::Vector3d init_postion = (w_point_c0 + w_point_c1)/2;
-
-  Eigen::Vector3d init_postion1(0, 0, 0);
-  if (!tryToInit(ftr, cams, init_postion1)) {
-    ;
+  Eigen::Vector3d init_postion(0, 0, 0);
+  if (!tryToInit(ftr, cams, init_postion)) {
+    return false;
   }
 
   int iter_cnt = 0;
   bool converge = false;
   
-  Eigen::Vector3d old_x(init_postion(0)/init_postion(2), init_postion(1)/init_postion(2), 1./init_postion(2));
+  // Eigen::Vector3d old_x(init_postion(0)/init_postion(2), init_postion(1)/init_postion(2), 1./init_postion(2));
+  Eigen::Vector3d old_x = init_postion;
   Eigen::Matrix3d JtJ;
   Eigen::Vector3d Jtb;
   double residual = 0;
@@ -173,7 +146,7 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
   } while (!converge && iter_cnt++ < param_.max_iter_cnt);
 
   bool valid_feature = true;
-  Eigen::Vector3d position(old_x.x()/old_x.z(), old_x.y()/old_x.z(), 1/old_x.z());
+  Eigen::Vector3d position = old_x; //(old_x.x()/old_x.z(), old_x.y()/old_x.z(), 1/old_x.z());
   for (const auto& cam_id_obs : ftr.observes) {
     const int cam_id = cam_id_obs.first;
     if (!cams.count(cam_id)) {
@@ -191,13 +164,12 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
   ftr.point_3d = position;
   ftr.status   = valid_feature ? FeatureStatus::Inited : FeatureStatus::NotInit;
 
-  // if (param_.verbose) {
+  if (param_.verbose) {
     LOG(INFO) << "init postion: " << init_postion.transpose();
-    LOG(INFO) << "init1 postion: " << init_postion1.transpose();
     LOG(INFO) << "opti postion: " << position.transpose();
     LOG(INFO) << "point valid: " << valid_feature;
     // TODO: report some optimization information like ceres
-  // }
+  }
 
   return valid_feature;
 }
@@ -251,7 +223,7 @@ Eigen::Vector2d SFM::evaluate(const Eigen::Vector3d& Pj_w, const CameraStatus& T
   const Eigen::Matrix3d R_ci_w = R_w_ci.toRotationMatrix().transpose();
   const Eigen::Vector3d t_ci_w = -R_ci_w*t_w_ci;
 
-  Eigen::Vector3d Pj_ci = R_ci_w*Eigen::Vector3d(alpha, beta, 1) + rho*t_ci_w;
+  Eigen::Vector3d Pj_ci = R_ci_w*Eigen::Vector3d(alpha, beta, rho) + t_ci_w;
   Eigen::Vector3d pj_ci = Pj_ci/Pj_ci(2);
 
   Eigen::Vector2d residual = pj_ci.head<2>() - obs_ci.head<2>();
@@ -261,9 +233,9 @@ Eigen::Vector2d SFM::evaluate(const Eigen::Vector3d& Pj_w, const CameraStatus& T
     J_p_P << 1./Pj_ci(2), 0, -Pj_ci(0)/(Pj_ci(2)*Pj_ci(2)),
              0, 1./Pj_ci(2), -Pj_ci(1)/(Pj_ci(2)*Pj_ci(2));
 
-    Eigen::Matrix3d J_P_T;
-    J_P_T.leftCols(2)  = R_ci_w.leftCols(2);
-    J_P_T.rightCols(1) = t_ci_w;
+    Eigen::Matrix3d J_P_T = R_ci_w;
+    // J_P_T.leftCols(2)  = R_ci_w.leftCols(2);
+    // J_P_T.rightCols(1) = t_ci_w;
     *jacobian = J_p_P*J_P_T;
   }
 
