@@ -810,12 +810,46 @@ bool Msckf::featureJacobian(const Feature& ftr, const CameraWindow& cam_window, 
   }
 
   // TODO: use givens
-  Eigen::JacobiSVD<Eigen::MatrixXd> svd(H_Pfj, Eigen::ComputeFullU | Eigen::ComputeThinV);
-  Eigen::MatrixXd A = svd.matrixU().rightCols(2*constraint_cam_id.size() - 3);
+  // COMMON::TicToc tic;
+  // Eigen::JacobiSVD<Eigen::MatrixXd> svd(H_Pfj, Eigen::ComputeFullU | Eigen::ComputeThinV);
+  // Eigen::MatrixXd A = svd.matrixU().rightCols(2*constraint_cam_id.size() - 3);
+  // LOG(INFO) << "SVD: " << tic.toc();
 
-  H_fj = A.transpose()*H_status;
-  e_fj = A.transpose()*e;
+  // Eigen::MatrixXd H_s_c = H_status;
+  // Eigen::MatrixXd H_p_s = H_Pfj;
+  // Eigen::VectorXd e_c = e;
 
+  // tic.tic();
+  projectHpNullSpace(H_status, H_Pfj, e);
+  // LOG(INFO) << "GIVENS: " << tic.toc();
+
+  // H_fj = A.transpose()*H_status;
+  // e_fj = A.transpose()*e;
+
+  H_fj = H_status;
+  e_fj = e;
+
+  return true;
+}
+
+bool Msckf::projectHpNullSpace(Eigen::MatrixXd& H_x, Eigen::MatrixXd& H_f, Eigen::VectorXd& e)
+{
+  Eigen::JacobiRotation<double> tempHo_GR;
+  for (int n = 0; n < H_f.cols(); ++n) {
+    for (int m = (int)H_f.rows() - 1; m > n; m--) {
+      // Givens matrix G
+      tempHo_GR.makeGivens(H_f(m - 1, n), H_f(m, n));
+      (H_f.block(m - 1, n, 2, H_f.cols() - n)).applyOnTheLeft(0, 1, tempHo_GR.adjoint());
+      (H_x.block(m - 1, 0, 2, H_x.cols())).applyOnTheLeft(0, 1, tempHo_GR.adjoint());
+      (e.block(m - 1, 0, 2, 1)).applyOnTheLeft(0, 1, tempHo_GR.adjoint());
+    }
+  }
+
+  H_x = H_x.block(H_f.cols(), 0, H_x.rows() - H_f.cols(), H_x.cols()).eval();
+  e = e.block(H_f.cols(), 0, e.rows() - H_f.cols(), e.cols()).eval();
+
+  // Sanity check
+  assert(H_x.rows() == e.rows());
   return true;
 }
 

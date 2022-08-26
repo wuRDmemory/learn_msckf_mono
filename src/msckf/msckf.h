@@ -117,6 +117,9 @@ private:
   Eigen::MatrixXd kalmanGain(const Eigen::MatrixXd& P, Eigen::MatrixXd& H, Eigen::VectorXd& e)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
+  bool projectHpNullSpace(Eigen::MatrixXd& H_x, Eigen::MatrixXd& H_p, Eigen::VectorXd& e)
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
   bool updateStates(const Eigen::VectorXd& delta_x) 
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 };
