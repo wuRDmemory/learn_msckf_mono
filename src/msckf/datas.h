@@ -102,6 +102,7 @@ struct Feature
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   map<int, Eigen::Vector3d> observes;
   Eigen::Vector3d point_3d;
+  Eigen::Vector3d point_3d_init;
   FeatureStatus status;
 };
 

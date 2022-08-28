@@ -65,14 +65,9 @@ bool SFM::tryToInit(Feature& ftr, CameraWindow& cams, Eigen::Vector3d& position)
   return true;
 }
 
-bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
+bool SFM::finetuneFeature(Feature& ftr, CameraWindow& cams)
 {
-  if (ftr.status != FeatureStatus::NotInit) {
-    return true;
-  }
-
-  Eigen::Vector3d init_postion(0, 0, 0);
-  if (!tryToInit(ftr, cams, init_postion)) {
+  if (ftr.status != FeatureStatus::Inited) {
     return false;
   }
 
@@ -80,9 +75,10 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
   bool converge = false;
   
   // Eigen::Vector3d old_x(init_postion(0)/init_postion(2), init_postion(1)/init_postion(2), 1./init_postion(2));
-  Eigen::Vector3d old_x = init_postion;
+  Eigen::Vector3d old_x = ftr.point_3d_init;
   Eigen::Matrix3d JtJ;
   Eigen::Vector3d Jtb;
+  double init_residual = -1;
   double residual = 0;
   double lambda   = 1.e-3;
 
@@ -95,6 +91,7 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
     Eigen::Vector2d res = evaluate(old_x, cams.at(cam_id), cam_id_obs.second, NULL);
     residual += res.squaredNorm();
   }
+  init_residual = residual;
 
   do {
     JtJ.setZero();
@@ -138,8 +135,7 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
 
         lambda  *= 0.1;
         lambda   = max(lambda, 1.e-10);
-      }
-      else {
+      } else {
         lambda *= 10;
         lambda  = min(lambda, 1.e10);
       }
@@ -148,7 +144,7 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
   } while (!converge && iter_cnt++ < param_.max_iter_cnt);
 
   bool valid_feature = true;
-  Eigen::Vector3d position = old_x; //(old_x.x()/old_x.z(), old_x.y()/old_x.z(), 1/old_x.z());
+  Eigen::Vector3d position = old_x;
   for (const auto& cam_id_obs : ftr.observes) {
     const int cam_id = cam_id_obs.first;
     if (!cams.count(cam_id)) {
@@ -164,17 +160,37 @@ bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
   }
 
   ftr.point_3d = position;
-  ftr.status   = valid_feature ? FeatureStatus::Inited : FeatureStatus::NotInit;
+  ftr.status = valid_feature ? FeatureStatus::Inited : FeatureStatus::NotInit;
 
   if (param_.verbose) {
-    LOG(INFO) << "init postion: " << init_postion.transpose();
+    LOG(INFO) << "init postion: " << ftr.point_3d_init.transpose();
     LOG(INFO) << "opti postion: " << position.transpose();
-    LOG(INFO) << "point valid: " << valid_feature;
-    // TODO: report some optimization information like ceres
+    LOG(INFO) << "residual: " << init_residual << " -> " << residual;
+    LOG(INFO) << "converge: " << converge ? "Yes" : "No";
+    LOG(INFO) << "point valid: " << valid_feature ? "Yes" : "No";
   }
 
   return valid_feature;
 }
+
+bool SFM::initialFeature(Feature& ftr, CameraWindow& cams)
+{
+  if (ftr.status != FeatureStatus::NotInit) {
+    return true;
+  }
+
+  Eigen::Vector3d init_postion(0, 0, 0);
+  if (!tryToInit(ftr, cams, init_postion)) {
+    return false;
+  }
+
+  ftr.point_3d_init = init_postion;
+  ftr.status = FeatureStatus::Inited;
+
+  return true;
+}
+
+
 
 bool SFM::checkMotion(Feature& ftr, CameraWindow& cams)
 {

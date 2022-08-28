@@ -29,17 +29,17 @@ track:
   fm_threshold: 1.0
   max_cornor_num: 300
   min_cornor_gap: 15
-  track_frequency: 10 
+  track_frequency: 10
 
 initial:
   verbose: 1
   imu_cnt: 200
   imu_dtime: 2
-  imu_accl_cov: 1.0
+  imu_accl_cov: 1.5
   imu_gyro_cov: 0.1
 
 msckf:
-  verbose: 0
+  verbose: 1
   noise_accl: 0.0025
   noise_gyro: 0.000025
   noise_accl_bias: 0.0001

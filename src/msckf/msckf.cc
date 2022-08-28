@@ -15,9 +15,9 @@ Msckf::Msckf(string config_path)
   image_tracker_ = absl::make_unique<ImageTracker>(Config::track_param, Config::camera_param);
   sfm_ptr_ = absl::make_unique<SFM>(Config::sfm_param);
 
-  for (int i = 1; i < 100; ++i) {
+  for (int i = 1; i < 200; ++i) {
     boost::math::chi_squared chi_squared_dist(i);
-    chi_square_distribution_[i] = boost::math::quantile(chi_squared_dist, 0.05);
+    chi_square_distribution_[i] = boost::math::quantile(chi_squared_dist, 0.95);
   }
 
   setup();
@@ -485,12 +485,14 @@ bool Msckf::featureUpdateStatus()
         invalid_feature_id.push_back(id);
         continue;
       }
-      
-      lose_feature_id.push_back(id);
     }
-    else {
-      lose_feature_id.push_back(id);    
+
+    if (!sfm_ptr_->finetuneFeature(ftr, data_.cameras_)) {
+      invalid_feature_id.push_back(id);
+      continue;
     }
+
+    lose_feature_id.push_back(id);
   }
 
   if (lose_feature_id.empty()) {
@@ -581,15 +583,17 @@ bool Msckf::pruneCameraStatus()
         init_invalid_cnt++;
         continue;       
       }
-      valid_vis_cnt++;
-      // jacobian_rows += (constraint_cam_id.size()*2 - 3);
-      jacobian_rows += (observe.size()*2 - 3);
     }
-    else {
-      valid_vis_cnt++;
-      // jacobian_rows += (constraint_cam_id.size()*2 - 3);
-      jacobian_rows += (observe.size()*2 - 3);
+
+    if (!sfm_ptr_->finetuneFeature(ftr, data_.cameras_)) {
+      // for (int cam_id : constraint_cam_id) {
+      //   observe.erase(cam_id);
+      // }
+      continue;
     }
+
+    valid_vis_cnt++;
+    jacobian_rows += (observe.size()*2 - 3);
   }
 
   if (jacobian_rows != 0) {
@@ -669,7 +673,8 @@ bool Msckf::buildProblemWithFeature(const std::vector<int>& ftr_id, Eigen::Matri
     featureJacobian(ftr, data_.cameras_, constraint_cam_id, H_fj, e_fj);
 
     arows += H_fj.rows();
-    if (gatingTest(H_fj, e_fj, constraint_cam_id.size())) {
+    // if (gatingTest(H_fj, e_fj, constraint_cam_id.size())) {
+    if (gatingTest(H_fj, e_fj, e_fj.rows())) {
       H.block(rows, 0, H_fj.rows(), H_fj.cols()) = H_fj;
       e.segment(rows,  e_fj.rows()) = e_fj;
       rows += H_fj.rows();
@@ -902,12 +907,14 @@ bool Msckf::measurementUpdateStatus(Eigen::MatrixXd& H, Eigen::VectorXd& e)
   Eigen::MatrixXd new_P = I_KF*data_.P_dx;
   data_.P_dx = (new_P + new_P.transpose()) / 2.0;
 
-  const Eigen::VectorXd& delta_imu = delta_x.head(IMU_STATUS_DIM);
+  Eigen::VectorXd delta_imu = delta_x.head(IMU_STATUS_DIM);
   if (   delta_imu.segment<3>(J_V).norm() > 0.5 
       || delta_imu.segment<3>(J_P).norm() > 1.0) {
     LOG(WARNING) << "[MeasureUpdate] Velocity update: " << delta_imu.segment<3>(J_V).transpose() << ". norm: " << delta_imu.segment<3>(J_V).norm();
     LOG(WARNING) << "[MeasureUpdate] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
     LOG(WARNING) << "[MeasureUpdate] Update delta is too large.";
+    delta_imu.segment<3>(J_V).setZero();
+    delta_imu.segment<3>(J_V).setZero();
   }
   
   data_.imu_status.boxPlus(delta_imu);
@@ -961,7 +968,7 @@ Eigen::MatrixXd Msckf::kalmanGain(const Eigen::MatrixXd& P, Eigen::MatrixXd& H, 
 bool Msckf::updateStates(const Eigen::VectorXd& delta_x)
 {
   if (delta_x.rows() < IMU_STATUS_DIM) {
-    LOG(ERROR) << "[MSCKF]: Update delta dimension is wrong, " << delta_x.rows();
+    LOG(ERROR) << "[PSCKF]: Update delta dimension is wrong, " << delta_x.rows();
     return false;
   }
 
