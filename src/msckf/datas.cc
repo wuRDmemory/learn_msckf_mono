@@ -34,11 +34,19 @@ void ImuStatus::boxPlus(const Eigen::VectorXd& delta_imu)
   bg  += delta_imu.segment<3>(J_BG);
   ba  += delta_imu.segment<3>(J_BA);
 
-  // gravity update
-  Eigen::MatrixXd bu = S2Bx(); // 3 x 2
-  Eigen::Vector3d vec = bu*delta_imu.segment<2>(J_G);
-  Eigen::Quaterniond q = MATH_UTILS::rotateVecToQuaternion(vec);
-  g = q*g;
+  if (IMU_STATUS_NUM > 5) {
+    Rbc *= MATH_UTILS::rotateVecToQuaternion<double>(delta_imu.segment<3>(J_R_BC)); Rbc.normalize();
+    // Rbc = MATH_UTILS::rotateVecToQuaternion<double>(delta_imu.segment<3>(J_R_BC))*Rbc; Rbc.normalize();
+    pbc += delta_imu.segment<3>(J_P_BC);
+  }
+
+  if (IMU_DO_GRAVITY) {
+    // gravity update
+    Eigen::MatrixXd bu = S2Bx(); // 3 x 2
+    Eigen::Vector3d vec = bu*delta_imu.segment<2>(J_G);
+    Eigen::Quaterniond q = MATH_UTILS::rotateVecToQuaternion(vec);
+    g = q*g;
+  }
 }
 
 Eigen::VectorXd ImuStatus::boxMinus(const ImuStatus& state) const
@@ -50,25 +58,32 @@ Eigen::VectorXd ImuStatus::boxMinus(const ImuStatus& state) const
   dx.segment<3>(J_BA) = ba - state.ba;
   dx.segment<3>(J_BG) = bg - state.bg;
 
-  // gravity minus
-  const Eigen::Vector3d& vec = g;
-  Eigen::Vector2d res;
-  double v_sin = (MATH_UTILS::skewMatrix(vec)*state.g).norm();
-  double v_cos = vec.transpose() * state.g;
-  double theta = std::atan2(v_sin, v_cos);
-  if(v_sin < eps) {
-    if(std::fabs(theta) > eps) {
-      res[0] = 3.1415926;
-      res[1] = 0;
-    } else {
-      res[0] = 0;
-      res[1] = 0;
-    }
-  } else {
-    Eigen::MatrixXd Bx = state.S2Bx();
-    res = theta/v_sin * Bx.transpose() * MATH_UTILS::skewMatrix(state.g)*vec;
+  if (IMU_STATUS_NUM > 5) {
+    dx.segment<3>(J_R_BC) = MATH_UTILS::quaternionToRotateVector<double>(state.Rbc.inverse()*Rbc);
+    dx.segment<3>(J_P_BC) = pbc - state.pbc;
   }
-  dx.segment<2>(J_G) = res;
+
+  if (IMU_DO_GRAVITY) {
+    // gravity minus
+    const Eigen::Vector3d& vec = g;
+    Eigen::Vector2d res;
+    double v_sin = (MATH_UTILS::skewMatrix(vec)*state.g).norm();
+    double v_cos = vec.transpose() * state.g;
+    double theta = std::atan2(v_sin, v_cos);
+    if(v_sin < eps) {
+      if(std::fabs(theta) > eps) {
+        res[0] = 3.1415926;
+        res[1] = 0;
+      } else {
+        res[0] = 0;
+        res[1] = 0;
+      }
+    } else {
+      Eigen::MatrixXd Bx = state.S2Bx();
+      res = theta/v_sin * Bx.transpose() * MATH_UTILS::skewMatrix(state.g)*vec;
+    }
+    dx.segment<2>(J_G) = res;
+  }
   return dx;
 }
 

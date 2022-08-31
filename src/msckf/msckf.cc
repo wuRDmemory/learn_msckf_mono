@@ -68,6 +68,8 @@ bool Msckf::setup()
   data_.P_dx.block<3, 3>(J_BG, J_BG) = Eigen::Matrix3d::Identity()*0.01;
   data_.P_dx.block<3, 3>(J_V,  J_V)  = Eigen::Matrix3d::Identity()*0.25;
   data_.P_dx.block<3, 3>(J_BA, J_BA) = Eigen::Matrix3d::Identity()*0.01;
+  data_.P_dx.block<3, 3>(J_R_BC, J_R_BC) = Eigen::Matrix3d::Identity()*0.001;
+  data_.P_dx.block<3, 3>(J_P_BC, J_P_BC) = Eigen::Matrix3d::Identity()*0.001;
   data_.P_dx.block<2, 2>(J_G,  J_G)  = Eigen::Matrix2d::Identity()*0.01;
 
   data_.Phi_test.setIdentity();
@@ -446,6 +448,10 @@ bool Msckf::predictCamStatus(const TrackResult& track_result)
   J_cam_imu.block<3, 3>(C_R, J_R) = imu_status.Rbc.toRotationMatrix().transpose();
   J_cam_imu.block<3, 3>(C_P, J_R) = -imu_status.Rwb.toRotationMatrix()*MATH_UTILS::skewMatrix(imu_status.pbc);
   J_cam_imu.block<3, 3>(C_P, J_P) = Eigen::Matrix3d::Identity();
+  if (IMU_STATUS_NUM > 5) {
+    J_cam_imu.block<3, 3>(C_R, J_R_BC) = Eigen::Matrix3d::Identity();
+    J_cam_imu.block<3, 3>(C_P, J_P_BC) = imu_status.Rwb.toRotationMatrix();
+  }
 
   P.conservativeResize(old_row + 6, old_col + 6);
 
@@ -916,6 +922,9 @@ bool Msckf::measurementUpdateStatus(Eigen::MatrixXd& H, Eigen::VectorXd& e)
     delta_imu.segment<3>(J_V).setZero();
     delta_imu.segment<3>(J_V).setZero();
   }
+
+  LOG(INFO) << "[MeasureUpdate] Rbc update: " << delta_imu.segment<3>(J_R_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_R_BC).norm();
+  LOG(INFO) << "[MeasureUpdate] pbc update: " << delta_imu.segment<3>(J_P_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_P_BC).norm();
   
   data_.imu_status.boxPlus(delta_imu);
 
@@ -980,6 +989,9 @@ bool Msckf::updateStates(const Eigen::VectorXd& delta_x)
     LOG(WARNING) << "[MSCKF] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
     LOG(WARNING) << "[MSCKF] Update delta is too large.";
   }
+
+  LOG(INFO) << "[MeasureUpdate] Rbc update: " << delta_imu.segment<3>(J_R_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_R_BC).norm();
+  LOG(INFO) << "[MeasureUpdate] pbc update: " << delta_imu.segment<3>(J_P_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_P_BC).norm();
 
   data_.imu_status.boxPlus(delta_imu);
 
