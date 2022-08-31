@@ -22,7 +22,7 @@ Tbc: !!opencv-matrix
   dt: d
   data: [0.0148655429818, -0.999880929698, 0.00414029679422, -0.0216401454975,
           0.999557249008, 0.0149672133247, 0.025715529948, -0.064676986768,
-          -0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949]
+          -0.0257744366974, 0.00375618835797, 0.999660727178, 0.01981073058949]
 
 track:
   verbose: 0
@@ -35,7 +35,7 @@ initial:
   verbose: 1
   imu_cnt: 200
   imu_dtime: 2
-  imu_accl_cov: 1.5
+  imu_accl_cov: 1.0
   imu_gyro_cov: 0.1
 
 msckf:
@@ -45,6 +45,9 @@ msckf:
   noise_accl_bias: 0.0001
   noise_gyro_bias: 0.000001
   noise_observation: 0.0001225
+
+  large_dp: 0.5
+  large_dv: 0.3
 
   ikf_iters: 10
   sliding_window_lens: 20

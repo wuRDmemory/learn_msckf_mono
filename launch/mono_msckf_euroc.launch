@@ -1,5 +1,5 @@
 <launch>
-  <arg name="config_path" default="$(find learn_msckf)/config/config.yaml"/>
+  <arg name="config_path" default="$(find learn_msckf)/config/config_euroc.yaml"/>
 
   <node name="mono_msckf" pkg="learn_msckf" type="msckf_node" 
       args="-config_file $(arg config_path)" required="true">

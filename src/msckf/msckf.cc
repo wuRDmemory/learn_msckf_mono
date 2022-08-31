@@ -290,6 +290,7 @@ bool Msckf::feedTrackResult(const TrackResult& track_result)
 
   if (param_.verbose) {
     LOG(INFO) << "[MSCKF] Update speed " << tick.toc() << "s.";
+    // LOG(INFO) << "[MSCKF] pbc " << data_.imu_status.pbc.transpose();
   }
 
   data_.imu_status.id++;
@@ -905,39 +906,40 @@ bool Msckf::findRedundanceCam(CameraWindow& cameras, vector<int>& remove_cam_id)
   return true;
 }
 
-bool Msckf::measurementUpdateStatus(Eigen::MatrixXd& H, Eigen::VectorXd& e)
-{
-  Eigen::MatrixXd K = kalmanGain(data_.P_dx, H, e);
-  Eigen::VectorXd delta_x = K*e;
-  Eigen::MatrixXd I_KF  = Eigen::MatrixXd::Identity(K.rows(), H.cols()) - K*H;
-  Eigen::MatrixXd new_P = I_KF*data_.P_dx;
-  data_.P_dx = (new_P + new_P.transpose()) / 2.0;
+// abandon
+// bool Msckf::measurementUpdateStatus(Eigen::MatrixXd& H, Eigen::VectorXd& e)
+// {
+//   Eigen::MatrixXd K = kalmanGain(data_.P_dx, H, e);
+//   Eigen::VectorXd delta_x = K*e;
+//   Eigen::MatrixXd I_KF  = Eigen::MatrixXd::Identity(K.rows(), H.cols()) - K*H;
+//   Eigen::MatrixXd new_P = I_KF*data_.P_dx;
+//   data_.P_dx = (new_P + new_P.transpose()) / 2.0;
 
-  Eigen::VectorXd delta_imu = delta_x.head(IMU_STATUS_DIM);
-  if (   delta_imu.segment<3>(J_V).norm() > 0.5 
-      || delta_imu.segment<3>(J_P).norm() > 1.0) {
-    LOG(WARNING) << "[MeasureUpdate] Velocity update: " << delta_imu.segment<3>(J_V).transpose() << ". norm: " << delta_imu.segment<3>(J_V).norm();
-    LOG(WARNING) << "[MeasureUpdate] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
-    LOG(WARNING) << "[MeasureUpdate] Update delta is too large.";
-    delta_imu.segment<3>(J_V).setZero();
-    delta_imu.segment<3>(J_V).setZero();
-  }
+//   Eigen::VectorXd delta_imu = delta_x.head(IMU_STATUS_DIM);
+//   if (   delta_imu.segment<3>(J_V).norm() > 0.5 
+//       || delta_imu.segment<3>(J_P).norm() > 1.0) {
+//     LOG(WARNING) << "[MeasureUpdate] Velocity update: " << delta_imu.segment<3>(J_V).transpose() << ". norm: " << delta_imu.segment<3>(J_V).norm();
+//     LOG(WARNING) << "[MeasureUpdate] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
+//     LOG(WARNING) << "[MeasureUpdate] Update delta is too large.";
+//     delta_imu.segment<3>(J_V).setZero();
+//     delta_imu.segment<3>(J_V).setZero();
+//   }
 
-  LOG(INFO) << "[MeasureUpdate] Rbc update: " << delta_imu.segment<3>(J_R_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_R_BC).norm();
-  LOG(INFO) << "[MeasureUpdate] pbc update: " << delta_imu.segment<3>(J_P_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_P_BC).norm();
+//   LOG(INFO) << "[MeasureUpdate] Rbc update: " << delta_imu.segment<3>(J_R_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_R_BC).norm();
+//   LOG(INFO) << "[MeasureUpdate] pbc update: " << delta_imu.segment<3>(J_P_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_P_BC).norm();
   
-  data_.imu_status.boxPlus(delta_imu);
+//   data_.imu_status.boxPlus(delta_imu);
 
-  int rows = 0;
-  for (auto& id_data : data_.cameras_) {
-    CameraStatus& cam_status = id_data.second;
-    const Eigen::VectorXd& delta_cam = delta_x.segment<6>(IMU_STATUS_DIM + rows);
-    cam_status.boxPlus(delta_cam);
-    rows += 6;
-  }
+//   int rows = 0;
+//   for (auto& id_data : data_.cameras_) {
+//     CameraStatus& cam_status = id_data.second;
+//     const Eigen::VectorXd& delta_cam = delta_x.segment<6>(IMU_STATUS_DIM + rows);
+//     cam_status.boxPlus(delta_cam);
+//     rows += 6;
+//   }
 
-  return true;
-}
+//   return true;
+// }
 
 bool Msckf::gatingTest(const Eigen::MatrixXd& H, const Eigen::VectorXd& r, const int v)
 {
@@ -982,16 +984,19 @@ bool Msckf::updateStates(const Eigen::VectorXd& delta_x)
   }
 
   // update state
-  const Eigen::VectorXd& delta_imu = delta_x.head(IMU_STATUS_DIM);
-  if (   delta_imu.segment<3>(J_V).norm() > 0.5 
-      || delta_imu.segment<3>(J_P).norm() > 1.0) {
+  Eigen::VectorXd delta_imu = delta_x.head(IMU_STATUS_DIM);
+  if (   delta_imu.segment<3>(J_V).norm() > param_.large_dv 
+      || delta_imu.segment<3>(J_P).norm() > param_.large_dp) {
     LOG(WARNING) << "[MSCKF] Velocity update: " << delta_imu.segment<3>(J_V).transpose() << ". norm: " << delta_imu.segment<3>(J_V).norm();
     LOG(WARNING) << "[MSCKF] Position update: " << delta_imu.segment<3>(J_P).transpose() << ". norm: " << delta_imu.segment<3>(J_P).norm();
+    LOG(WARNING) << "[MSCKF] Rotation update: " << delta_imu.segment<3>(J_R).transpose() << ". norm: " << delta_imu.segment<3>(J_R).norm();
+    LOG(WARNING) << "[MSCKF] bg update: " << delta_imu.segment<3>(J_BG).transpose() << ". norm: " << delta_imu.segment<3>(J_BG).norm();
+    LOG(WARNING) << "[MSCKF] ba update: " << delta_imu.segment<3>(J_BA).transpose() << ". norm: " << delta_imu.segment<3>(J_BA).norm();
     LOG(WARNING) << "[MSCKF] Update delta is too large.";
+    delta_imu.segment<3>(J_V).setZero();
+    delta_imu.segment<3>(J_P).setZero();
+    // delta_imu.setZero();
   }
-
-  LOG(INFO) << "[MeasureUpdate] Rbc update: " << delta_imu.segment<3>(J_R_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_R_BC).norm();
-  LOG(INFO) << "[MeasureUpdate] pbc update: " << delta_imu.segment<3>(J_P_BC).transpose() << ". norm: " << delta_imu.segment<3>(J_P_BC).norm();
 
   data_.imu_status.boxPlus(delta_imu);
 

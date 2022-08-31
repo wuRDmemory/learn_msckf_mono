@@ -30,6 +30,8 @@ struct MsckfParam {
   double noise_accl_bias;
   double noise_gyro_bias;
   double noise_observation;
+  double large_dp;
+  double large_dv;
 
   // Sliding window param
   int ikf_iters;
