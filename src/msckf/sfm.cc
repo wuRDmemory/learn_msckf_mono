@@ -65,6 +65,22 @@ bool SFM::tryToInit(Feature& ftr, CameraWindow& cams, Eigen::Vector3d& position)
   return true;
 }
 
+
+bool SFM::constructFeature(Feature& ftr, CameraWindow& cams)
+{
+  if (ftr.status == FeatureStatus::NotInit) {
+    if (!checkMotion(ftr, cams) || !initialFeature(ftr, cams)) {
+      return false;
+    }
+  }
+
+  if (param_.finetune && !finetuneFeature(ftr, cams)) {
+    return false;
+  }
+
+  return true;
+}
+
 bool SFM::finetuneFeature(Feature& ftr, CameraWindow& cams)
 {
   if (ftr.status != FeatureStatus::Inited) {

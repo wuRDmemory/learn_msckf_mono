@@ -294,7 +294,6 @@ bool Msckf::feedTrackResult(const TrackResult& track_result)
   }
 
   data_.imu_status.id++;
-  
   if (callback_) {
     callback_(data_.imu_status, data_.cameras_, mature_features_);
   }
@@ -487,16 +486,9 @@ bool Msckf::featureUpdateStatus()
       continue;
     }
 
-    if (ftr.status == FeatureStatus::NotInit) {
-      if (!(sfm_ptr_->checkMotion(ftr, data_.cameras_) && sfm_ptr_->initialFeature(ftr, data_.cameras_))) {
+    if (!sfm_ptr_->constructFeature(ftr, data_.cameras_)) {
         invalid_feature_id.push_back(id);
         continue;
-      }
-    }
-
-    if (!sfm_ptr_->finetuneFeature(ftr, data_.cameras_)) {
-      invalid_feature_id.push_back(id);
-      continue;
     }
 
     lose_feature_id.push_back(id);
@@ -575,28 +567,12 @@ bool Msckf::pruneCameraStatus()
     }
 
     common_vis_cnt++;
-    if (ftr.status == FeatureStatus::NotInit) {
-      if (!sfm_ptr_->checkMotion(ftr, data_.cameras_)) {
-        for (int cam_id : constraint_cam_id) {
-          observe.erase(cam_id);
-        }
-        motion_invalid_cnt++;
-        continue;
-      }
-      else if (!sfm_ptr_->initialFeature(ftr, data_.cameras_)) {
+    if (!sfm_ptr_->constructFeature(ftr, data_.cameras_)) {
         for (int cam_id : constraint_cam_id) {
           observe.erase(cam_id);
         }
         init_invalid_cnt++;
         continue;       
-      }
-    }
-
-    if (!sfm_ptr_->finetuneFeature(ftr, data_.cameras_)) {
-      // for (int cam_id : constraint_cam_id) {
-      //   observe.erase(cam_id);
-      // }
-      continue;
     }
 
     valid_vis_cnt++;

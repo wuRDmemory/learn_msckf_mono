@@ -40,6 +40,8 @@ MsckfParam Config::msckf_param = {
 };
 
 SFMParam Config::sfm_param = {
+  .verbose = false,
+  .finetune = true,
   .max_iter_cnt = 10,
   .max_try_cnt = 10,
   .max_cond_number = 20000,
@@ -177,6 +179,7 @@ void Config::readConfig(string config_file_path)
   { //* read SFM feature configuration
     cv::FileNode n = fs["sfm"];
     sfm_param.verbose = (int)n["verbose"] == 1;
+    sfm_param.finetune = (int)n["finetune"] == 1;
     sfm_param.max_iter_cnt = (int)n["max_iter_cnt"];
     sfm_param.max_try_cnt  = (int)n["max_try_cnt"];
     sfm_param.max_cond_number = (int)n["max_cond_number"];
@@ -187,6 +190,7 @@ void Config::readConfig(string config_file_path)
     sfm_param.min_disparity_distance = (double)n["min_disparity_distance"];
 
     LOG(INFO) << "[CONFIG] SFM verbose : \t" << sfm_param.verbose; 
+    LOG(INFO) << "[CONFIG] SFM funetune : \t" << sfm_param.finetune; 
     LOG(INFO) << std::fixed << "[CONFIG] SFM max iter count : \t" << sfm_param.max_iter_cnt; 
     LOG(INFO) << std::fixed << "[CONFIG] SFM max try  count : \t" << sfm_param.max_try_cnt;
     LOG(INFO) << std::fixed << "[CONFIG] SFM max cond number : \t" << sfm_param.max_cond_number;

@@ -43,6 +43,7 @@ struct MsckfParam {
 
 struct SFMParam {
   bool verbose;
+  bool finetune;
   int max_iter_cnt;
   int max_try_cnt;
   int max_cond_number;
