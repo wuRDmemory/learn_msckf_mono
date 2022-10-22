@@ -18,6 +18,7 @@ class ImageTracker {
 private:
   static int ID;
   static int LID;
+  float   scaler_ = 1.0f;
   double  prev_pub_ts_ = -1;
   double  last_ts_ = -1;
 

@@ -17,10 +17,10 @@ function(init_project PROJECT_DIR)
 
   if (CMAKE_BUILD_TYPE STREQUAL "Release")
     message("-- Build TYPE release")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -g -DNDEBUG")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -g")
   else()
     message("-- Build TYPE debug")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g2")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g")
   endif()
 
   if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")

@@ -36,6 +36,7 @@ ImageTracker::ImageTracker(TrackParam &param, CameraParam &camera_param) :
     camera_param.k1, camera_param.k2, camera_param.d1, camera_param.d2
   );
 
+  scaler_ = 1.0f/camera_param.scaler;
   const int width  = camera_->width();
   const int height = camera_->height();
   const int width_step  = width/3;
@@ -62,13 +63,16 @@ ImageTracker::~ImageTracker()
   }
 }
 
-bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image)
+bool ImageTracker::feedImage(const double& time, const cv::Mat& input_image)
 {
   last_ts_ = time;
   
   char info[256];
   const double delta_time = time - prev_pub_ts_;
   const bool   publish    = (delta_time >= param_.track_frequency);
+
+  cv::Mat curr_image;
+  cv::resize(input_image, curr_image, cv::Size(), scaler_, scaler_);
 
   // track point process
   vector<cv::Point2f> curr_points;
@@ -93,7 +97,7 @@ bool ImageTracker::feedImage(const double& time, const cv::Mat& curr_image)
   }
 
   last_points_ = std::move(curr_points);
-  last_image_  = curr_image.clone();
+  last_image_  = curr_image;
 
   if (publish) {
     sprintf(info, "[TRACKER] Publish data in %lf", time);

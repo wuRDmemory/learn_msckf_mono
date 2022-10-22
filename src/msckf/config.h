@@ -12,6 +12,7 @@ struct CameraParam {
   int width, height;
   float fx, fy, cx, cy;
   float k1, k2, d1, d2;
+  float scaler;
 };
 
 struct InitParam {

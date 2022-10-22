@@ -729,7 +729,6 @@ bool Msckf::measurementUpdateIKF(const std::vector<int>& ftr_id, int measure_dim
   if (param_.verbose) {
     LOG(INFO) << "[" << stage << "-IKF] Iterator times : " << iter << ", coverage: " << (converage ? "True" : "False") << ", Loss from " << init_loss << " -> " << last_loss;
   }
-  // LOG(INFO) << "[" << stage << "-IKF] Gravity: " << imu_prop.g.transpose() << " -> " << data_.imu_status.g.transpose() << ", norm: " << data_.imu_status.g.norm();
 
   return true;
 }
@@ -955,7 +954,12 @@ Eigen::MatrixXd Msckf::kalmanGain(const Eigen::MatrixXd& P, Eigen::MatrixXd& H, 
 bool Msckf::updateStates(const Eigen::VectorXd& delta_x)
 {
   if (delta_x.rows() < IMU_STATUS_DIM) {
-    LOG(ERROR) << "[PSCKF]: Update delta dimension is wrong, " << delta_x.rows();
+    LOG(ERROR) << "[MSCKF]: Update delta dimension is wrong, " << delta_x.rows();
+    return false;
+  }
+
+  if (delta_x.hasNaN()) {
+    LOG(ERROR) << "[MSCKF]: Nan is show !!!!" << delta_x.transpose();
     return false;
   }
 

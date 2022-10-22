@@ -211,6 +211,7 @@ bool Node::publishImuPath() {
 }
 
 bool Node::publishRobotPose(const Eigen::Quaterniond& q, const Eigen::Vector3d& p) {
+
   visualization_msgs::Marker marker;
   double scale = 0.2;
   double line_width = 0.01;

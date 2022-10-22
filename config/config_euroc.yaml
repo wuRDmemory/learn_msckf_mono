@@ -5,6 +5,7 @@ camera:
 
   width: 752
   height: 480
+  scaler: 2
 
   fx: 458.654
   fy: 457.296
@@ -27,7 +28,7 @@ Tbc: !!opencv-matrix
 track:
   verbose: 0
   fm_threshold: 1.0
-  max_cornor_num: 300
+  max_cornor_num: 100
   min_cornor_gap: 15
   track_frequency: 10
 

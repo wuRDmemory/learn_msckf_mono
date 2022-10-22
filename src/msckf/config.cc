@@ -12,7 +12,8 @@ CameraParam Config::camera_param = {
   .k1 = 0,
   .k2 = 0,
   .d1 = 0,
-  .d2 = 0
+  .d2 = 0,
+  .scaler = 1
 };
 
 InitParam Config::init_param = {
@@ -70,13 +71,14 @@ void Config::readConfig(string config_file_path)
   { //* read camera paramters
     cv::FileNode n = fs["camera"];
     n["type"] >> camera_param.type;
-    camera_param.width  = (int)n["width"];
-    camera_param.height = (int)n["height"];
+    camera_param.scaler = (int)n["scaler"];
+    camera_param.width  = (int)n["width"] / camera_param.scaler;
+    camera_param.height = (int)n["height"] / camera_param.scaler;
 
-    camera_param.fx = (float)n["fx"];
-    camera_param.fy = (float)n["fy"];
-    camera_param.cx = (float)n["cx"];
-    camera_param.cy = (float)n["cy"];
+    camera_param.fx = (float)n["fx"] / camera_param.scaler;
+    camera_param.fy = (float)n["fy"] / camera_param.scaler;
+    camera_param.cx = (float)n["cx"] / camera_param.scaler;
+    camera_param.cy = (float)n["cy"] / camera_param.scaler;
     
     camera_param.k1 = (float)n["k1"];
     camera_param.k2 = (float)n["k2"];
