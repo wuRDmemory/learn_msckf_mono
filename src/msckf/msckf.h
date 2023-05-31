@@ -90,6 +90,10 @@ private:
   bool predictCamStatus(const TrackResult& track_result) 
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
+  bool getUpdateFeatures(UpdateFeatureIds &update_ids);
+
+  bool featureUpdate(const UpdateFeatureIds &update_ids);
+
   bool featureUpdateStatus() 
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 

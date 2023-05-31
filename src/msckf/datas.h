@@ -23,6 +23,13 @@ enum FeatureStatus
   Deleted = 4,
 };
 
+struct UpdateFeatureIds
+{
+  std::set<int> lose_ftr_id;
+  std::set<int> prune_ftr_id;
+  std::vector<int> remove_cam_id;
+};
+
 struct ImuData
 {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW

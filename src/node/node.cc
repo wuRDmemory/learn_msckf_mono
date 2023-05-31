@@ -4,8 +4,8 @@
  * ros topic names
  */
 const char ref_frame[]         = "map";
-const char imu_sub_name[]      = "imu0";
-const char img_sub_name[]      = "cam0/image_raw";
+const char imu_sub_name[]      = "/handsfree/imu";
+const char img_sub_name[]      = "/camera1/Image";
 const char img_pub_name[]      = "track_result";
 const char cam_pub_path_name[] = "cam_path";
 const char imu_pub_path_name[] = "imu_path";
@@ -61,8 +61,9 @@ void Node::imageCallBack(const sensor_msgs::Image::ConstPtr& image) {
   // LOG(INFO) << "receive image data in " << image->header.stamp.toSec();
   cv_bridge::CvImagePtr cv_ptr;
   try {
-    cv_ptr = cv_bridge::toCvCopy(image, sensor_msgs::image_encodings::MONO8);
+    cv_ptr = cv_bridge::toCvCopy(image, sensor_msgs::image_encodings::BGR8);
     cv::Mat img = cv_ptr->image;
+    cv::cvtColor(img, img, cv::COLOR_BGR2GRAY);
     publishers_[img_pub_name].publish(cv_ptr);
 
     msckf_->feedImage(image->header.stamp.toSec(), img);

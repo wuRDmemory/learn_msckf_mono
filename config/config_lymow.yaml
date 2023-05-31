@@ -3,30 +3,31 @@
 camera:
   type: "PINHOLE"
 
-  width: 752
+  width: 640
   height: 480
   scaler: 1
 
-  fx: 458.654
-  fy: 457.296
-  cx: 367.215
-  cy: 248.375
+  fx: 367.4252
+  fy: 367.4862
+  cx: 336.2885
+  cy: 216.9875
 
-  k1: -0.28340811
-  k2: 0.07395907
-  d1: 0.00019359
-  d2: 1.76187114e-05
+  k1: -0.3107
+  k2: 0.0773
+  d1: -0.0008
+  d2: 0.0002
 
 Tbc: !!opencv-matrix
   rows: 3
   cols: 4
   dt: d
-  data: [0.0148655429818, -0.999880929698, 0.00414029679422, -0.0216401454975,
-          0.999557249008, 0.0149672133247, 0.025715529948, -0.064676986768,
-          -0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949]
+  data: [0, -0.325568,  0.945519, 0.2,
+           -1,         0,         0,   0,
+            0, -0.945519, -0.325568, 0.2] 
+
 
 track:
-  verbose: 0
+  verbose: 1
   fm_threshold: 1.0
   max_cornor_num: 200
   min_cornor_gap: 15
@@ -36,28 +37,28 @@ initial:
   verbose: 1
   imu_cnt: 200
   imu_dtime: 2
-  imu_accl_cov: 1.0
+  imu_accl_cov: 0.1
   imu_gyro_cov: 0.1
 
 msckf:
   verbose: 1
-  noise_accl: 0.0025
-  noise_gyro: 0.000025
-  noise_accl_bias: 0.0001
-  noise_gyro_bias: 0.000001
-  noise_observation: 0.0001225
+  noise_accl: 0.025
+  noise_gyro: 0.00025
+  noise_accl_bias: 0.001
+  noise_gyro_bias: 0.0001
+  noise_observation: 0.01225
 
   large_dp: 0.5
   large_dv: 0.3
 
   ikf_iters: 10
-  sliding_window_lens: 10
+  sliding_window_lens: 20
   distance_threshold: 0.5
   angle_threshold: 15 # in deg
   track_threshold: 0.5
 
 sfm:
-  verbose: 0
+  verbose: 1
   finetune: 1
   max_iter_cnt: 20
   max_try_cnt: 10

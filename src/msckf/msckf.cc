@@ -21,7 +21,7 @@ Msckf::Msckf(string config_path)
   }
 
   setup();
-
+  
   is_stop_ = false;
   image_process_thread_ = thread(&Msckf::imageProcess, this);
 }
@@ -284,7 +284,10 @@ bool Msckf::feedTrackResult(const TrackResult& track_result)
   data_.imu_status.observes.swap(obs_set);
   
   COMMON::TicToc tick;
+  UpdateFeatureIds update_info;
   predictCamStatus(track_result);
+  // getUpdateFeatures(update_info);
+  // featureUpdate(update_info);
   featureUpdateStatus();
   pruneCameraStatus();
 
@@ -464,6 +467,147 @@ bool Msckf::predictCamStatus(const TrackResult& track_result)
 
   Eigen::MatrixXd new_P = (P + P.transpose())/2.0; 
   P = new_P;
+
+  return true;
+}
+
+bool Msckf::getUpdateFeatures(UpdateFeatureIds &update_ids)
+{
+  if (data_.cameras_.size() > param_.sliding_window_lens) {
+    findRedundanceCam(data_.cameras_, update_ids.remove_cam_id);
+    assert(update_ids.remove_cam_id.size() == 2);
+  }
+
+  for (auto& id_data : data_.features_) {
+    const int id  = id_data.first;
+    Feature&  ftr = id_data.second;
+    auto& observe = ftr.observes;
+
+    if (!data_.imu_status.observes.count(id)) {
+      update_ids.lose_ftr_id.insert(id);
+      continue;
+    }
+
+    std::vector<int> constraint_cam_id;
+    for (int cam_id : update_ids.remove_cam_id) {
+      if (observe.count(cam_id)) {
+        constraint_cam_id.push_back(cam_id);
+      }
+    }
+
+    if (constraint_cam_id.size() == 0) {
+      continue;
+    }
+    
+    if (constraint_cam_id.size() == 1) {
+      observe.erase(constraint_cam_id[0]);
+      continue;
+    }
+
+    update_ids.prune_ftr_id.insert(id_data.first);
+  }
+
+  return true;
+}
+
+bool Msckf::featureUpdate(const UpdateFeatureIds &update_ids)
+{
+  // A. find point which is losed
+  std::vector<int> valid_feature_id;
+  std::vector<int> invalid_feature_id;
+  for (const int& id : update_ids.prune_ftr_id) {
+    Feature& ftr = data_.features_[id];
+
+    if (ftr.observes.size() < 3) {
+      continue;
+    }
+
+    if (!sfm_ptr_->constructFeature(ftr, data_.cameras_)) {
+      continue;
+    }
+
+    valid_feature_id.push_back(id);
+  }
+
+  for (const int& id : update_ids.lose_ftr_id) {
+    Feature& ftr = data_.features_[id];
+
+    if (ftr.observes.size() < 3) {
+      invalid_feature_id.push_back(id);
+      continue;
+    }
+
+    if (!sfm_ptr_->constructFeature(ftr, data_.cameras_)) {
+        invalid_feature_id.push_back(id);
+        continue;
+    }
+
+    valid_feature_id.push_back(id);
+  }
+
+  if (valid_feature_id.empty()) {
+    return false;
+  }
+
+  if (param_.verbose) {
+    LOG(INFO) << "[LOSE] valid feature: " << valid_feature_id.size() << " | " << invalid_feature_id.size();
+  }
+
+  // B. use lose features to update all status.
+  int jacobian_rows = 0;
+  for (size_t i = 0; i < valid_feature_id.size(); ++i) {
+    const Feature& ftr = data_.features_.at(valid_feature_id[i]);
+    jacobian_rows += ftr.observes.size()*2 - 3;
+  }
+
+  if (!measurementUpdateIKF(valid_feature_id, jacobian_rows, "Update")) {
+    if (param_.verbose) {
+      LOG(WARNING) << "[LOSE] IKF update error!!!";
+    }
+    return false;
+  }
+
+  // D. remove invalid and lose feature.
+  for (int ftr_id : update_ids.lose_ftr_id) {
+    mature_features_[ftr_id] = data_.features_[ftr_id];
+    data_.features_[ftr_id].status = FeatureStatus::Deleted;
+    data_.features_.erase(ftr_id);
+  }
+
+  for (int ftr_id : invalid_feature_id) {
+    // data_.features_[ftr_id].status = FeatureStatus::Deleted;
+    data_.features_.erase(ftr_id);
+  }
+
+  if (!update_ids.remove_cam_id.empty()) {
+    // remove cam in observe
+    for (int id : update_ids.prune_ftr_id) {
+      for (int cam_id : update_ids.remove_cam_id) {
+        data_.features_[id].observes.erase(cam_id);
+      }
+    }
+
+    Eigen::MatrixXd& P = data_.P_dx;
+    for (const int cam_id : update_ids.remove_cam_id) {
+      int cam_sequence     = std::distance(data_.cameras_.begin(), data_.cameras_.find(cam_id));
+      int cam_status_start = IMU_STATUS_DIM + 6*cam_sequence;
+      int cam_status_end   = cam_status_start + 6;
+
+      if (cam_status_end < P.rows()) {
+        const int old_rows = P.rows();
+        const int old_cols = P.cols();
+        P.block(cam_status_start, 0, old_rows - cam_status_end, old_cols) = P.block(cam_status_end, 0, old_rows - cam_status_end, old_cols);
+        P.block(0, cam_status_start, old_rows, old_cols - cam_status_end) = P.block(0, cam_status_end, old_rows, old_cols - cam_status_end);
+        P.conservativeResize(old_rows - 6, old_cols - 6);
+      } else {
+        const int old_rows = P.rows();
+        const int old_cols = P.cols();
+        P.conservativeResize(old_rows - 6, old_cols - 6);
+      }
+
+      data_.cameras_.erase(cam_id);
+    }
+  }
 
   return true;
 }
